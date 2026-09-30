@@ -6,6 +6,10 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const DataContext = createContext(null);
 
+const API_URL = 'http://localhost:8080/api/books';
+const backendOffline = (err) =>
+  console.error('Could not sync to backend server (is node server.js running?):', err);
+
 const KEYS = {
   students: 'lbs_students',
   admins: 'lbs_admins',
@@ -196,26 +200,35 @@ export function DataProvider({ children }) {
     };
     setBooks((prev) => [...prev, newBook]);
 
-    // Also send it to the Express server (port 8080) so it shows up there
-    // too. This is optional/best-effort — if the server isn't running,
-    // the book still gets added to the app normally above.
-    fetch('http://localhost:8080/api/books', {
+    // Mirror the new book to the Express server (port 8080). Best-effort:
+    // if the server isn't running, the book is still added to the app above.
+    fetch(`${API_URL}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(book),
-    }).catch((err) => {
-      console.error('Could not sync to backend server (is node server.js running?):', err);
-    });
+      body: JSON.stringify(newBook),
+    }).catch(backendOffline);
   }
 
   function updateBook(id, updates) {
     setBooks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, ...updates } : b))
     );
+
+    // Only real edits from Manage Books (which include title/author) are
+    // mirrored. Borrow/return stock changes only touch availableCopies,
+    // which the server doesn't store.
+    if (updates.title !== undefined) {
+      fetch(`${API_URL}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      }).catch(backendOffline);
+    }
   }
 
   function deleteBook(id) {
     setBooks((prev) => prev.filter((b) => b.id !== id));
+    fetch(`${API_URL}/${id}`, { method: 'DELETE' }).catch(backendOffline);
   }
 
   // Adds any books from the seed catalog (src/data/seedBooks.js) that

@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Backend from './pages/Backend';
 
 import StudentLayout from './pages/student/StudentLayout';
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -79,6 +80,9 @@ function AppRoutes() {
         <Route path="records" element={<LendingRecords />} />
         <Route path="reports" element={<Reports />} />
       </Route>
+
+      {/* Hidden page: no link to it anywhere in the admin/student menus. */}
+      <Route path="/backend" element={<Backend />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
