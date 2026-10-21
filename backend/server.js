@@ -1,9 +1,11 @@
 const express = require('express'); 
 const cors = require('cors'); 
 const app = express();
+const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 app.use(cors());
+
 
 let books = [
     {
@@ -136,6 +138,6 @@ app.post('/api/login', (req, res) => {
     res.json({ message: 'Login recorded.' });
 });
 
-app.listen(8080, () => {
+app.listen(PORT, () => {
     console.log('Server running with 8080');
 });
