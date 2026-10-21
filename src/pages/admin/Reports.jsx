@@ -1,4 +1,6 @@
 import { useData } from '../../context/DataContext';
+import StatCard from '../../components/StatCard';
+import PageHeader from '../../components/PageHeader';
 
 export default function Reports() {
   const { books, students, requests } = useData();
@@ -20,65 +22,59 @@ export default function Reports() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
+  const STATUS_COLOR = { Pending: 'warning', Approved: 'success', Rejected: 'danger', Returned: 'secondary' };
+  const totalReq = requests.length || 1; // avoid divide-by-zero
+
   const overdue = requests.filter(
     (r) => r.status === 'Approved' && new Date(r.dueDate) < new Date()
   );
 
   return (
     <div>
-      <h4 className="fw-bold mb-3">Reports</h4>
+      <PageHeader title="Reports" subtitle="Library activity at a glance" />
 
-      <div className="row mb-4">
-        <div className="col-md-3 mb-3">
-          <div className="card border-0 shadow-sm text-center p-3">
-            <div className="fs-3 fw-bold">{books.length}</div>
-            <div className="text-muted small">Book Titles</div>
-          </div>
-        </div>
-        <div className="col-md-3 mb-3">
-          <div className="card border-0 shadow-sm text-center p-3">
-            <div className="fs-3 fw-bold">{students.length}</div>
-            <div className="text-muted small">Registered Students</div>
-          </div>
-        </div>
-        <div className="col-md-3 mb-3">
-          <div className="card border-0 shadow-sm text-center p-3">
-            <div className="fs-3 fw-bold">{totalBorrowed}</div>
-            <div className="text-muted small">Copies Currently Out</div>
-          </div>
-        </div>
-        <div className="col-md-3 mb-3">
-          <div className="card border-0 shadow-sm text-center p-3">
-            <div className="fs-3 fw-bold text-danger">{overdue.length}</div>
-            <div className="text-muted small">Overdue Books</div>
-          </div>
-        </div>
+      <div className="row g-3 row-cols-1 row-cols-sm-2 row-cols-lg-4 mb-4">
+        <StatCard label="Book Titles" value={books.length} icon="bi-journal-bookmark" color="primary" />
+        <StatCard label="Registered Students" value={students.length} icon="bi-people" color="info" />
+        <StatCard label="Copies Currently Out" value={totalBorrowed} icon="bi-box-arrow-up-right" color="warning" />
+        <StatCard label="Overdue Books" value={overdue.length} icon="bi-exclamation-triangle" color="danger" />
       </div>
 
       <div className="row">
         <div className="col-md-6 mb-3">
-          <div className="card border-0 shadow-sm">
+          <div className="card">
             <div className="card-header bg-white fw-semibold">Requests by Status</div>
-            <ul className="list-group list-group-flush">
+            <div className="card-body">
               {byStatus.map((s) => (
-                <li key={s.status} className="list-group-item d-flex justify-content-between">
-                  {s.status}
-                  <span className="fw-bold">{s.count}</span>
-                </li>
+                <div key={s.status} className="mb-3">
+                  <div className="d-flex justify-content-between small mb-1">
+                    <span>{s.status}</span>
+                    <strong>{s.count}</strong>
+                  </div>
+                  <div className="progress" style={{ height: 8 }}>
+                    <div
+                      className={`progress-bar bg-${STATUS_COLOR[s.status]}`}
+                      style={{ width: `${(s.count / totalReq) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
         <div className="col-md-6 mb-3">
-          <div className="card border-0 shadow-sm">
+          <div className="card">
             <div className="card-header bg-white fw-semibold">Most Requested Books</div>
             <ul className="list-group list-group-flush">
               {mostRequested.length === 0 && (
                 <li className="list-group-item text-muted">No data yet.</li>
               )}
-              {mostRequested.map(([title, count]) => (
+              {mostRequested.map(([title, count], i) => (
                 <li key={title} className="list-group-item d-flex justify-content-between">
-                  {title}
+                  <span>
+                    <span className="badge text-bg-light me-2">{i + 1}</span>
+                    {title}
+                  </span>
                   <span className="fw-bold">{count}</span>
                 </li>
               ))}

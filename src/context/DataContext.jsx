@@ -7,6 +7,23 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 const DataContext = createContext(null);
 
 const API_URL = 'http://localhost:8080/api/books';
+const LOGIN_URL = 'http://localhost:8080/api/login';
+
+// Tells the Express server who just logged in so it prints it in the
+// terminal. Best-effort: if the server isn't running, login still works.
+function reportLogin(sess) {
+  fetch(LOGIN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: sess.name,
+      email: sess.email,
+      role: sess.role,
+      provider: sess.provider || 'email',
+    }),
+  }).catch((err) => console.error('Could not report login to backend server:', err));
+}
+
 const backendOffline = (err) =>
   console.error('Could not sync to backend server (is node server.js running?):', err);
 
@@ -16,7 +33,14 @@ const KEYS = {
   books: 'lbs_books',
   requests: 'lbs_requests',
   session: 'lbs_session',
+  seedVersion: 'lbs_seed_version',
 };
+
+// Bump SEED_VERSION whenever src/data/seedBooks.js gets new books. Browsers that
+// already saved their own copy of the catalog get topped up once, up to
+// CATALOG_SIZE titles, without touching existing books or their edits.
+const SEED_VERSION = 2;
+const CATALOG_SIZE = 150;
 
 function load(key, fallback) {
   try {
@@ -29,6 +53,17 @@ function load(key, fallback) {
 
 function save(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function initialBooks() {
+  const stored = load(KEYS.books, null);
+  if (!stored) return seedBooks;
+  if (load(KEYS.seedVersion, 0) >= SEED_VERSION) return stored;
+
+  const have = new Set(stored.map((b) => b.id));
+  const room = Math.max(0, CATALOG_SIZE - stored.length);
+  const extra = seedBooks.filter((b) => !have.has(b.id)).slice(0, room);
+  return [...stored, ...extra];
 }
 
 function genId(prefix) {
@@ -51,7 +86,7 @@ export function DataProvider({ children }) {
     const hasDefault = stored.some((a) => a.email.toLowerCase() === DEFAULT_ADMIN.email);
     return hasDefault ? stored : [DEFAULT_ADMIN, ...stored];
   });
-  const [books, setBooks] = useState(() => load(KEYS.books, seedBooks));
+  const [books, setBooks] = useState(initialBooks);
   const [requests, setRequests] = useState(() => load(KEYS.requests, []));
   const [session, setSession] = useState(() => load(KEYS.session, null));
   // True until we've checked whether a Google/Firebase session is already
@@ -63,6 +98,7 @@ export function DataProvider({ children }) {
   useEffect(() => save(KEYS.students, students), [students]);
   useEffect(() => save(KEYS.admins, admins), [admins]);
   useEffect(() => save(KEYS.books, books), [books]);
+  useEffect(() => save(KEYS.seedVersion, SEED_VERSION), []);
   useEffect(() => save(KEYS.requests, requests), [requests]);
   useEffect(() => {
     if (session) save(KEYS.session, session);
@@ -107,6 +143,10 @@ export function DataProvider({ children }) {
           email: currentUser.email,
           provider: 'google',
         };
+        // Only report a fresh sign-in, not a session restored on page refresh.
+        const previous = load(KEYS.session, null);
+        if (!previous || previous.id !== sess.id) reportLogin(sess);
+
         setSession(sess);
         setAuthError('');
 
@@ -171,6 +211,7 @@ export function DataProvider({ children }) {
     if (!user) throw new Error('Invalid email or password.');
     const sess = { role, id: user.id, name: user.name, email: user.email };
     setSession(sess);
+    reportLogin(sess);
     return sess;
   }
 

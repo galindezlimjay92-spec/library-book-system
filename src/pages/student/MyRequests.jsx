@@ -1,14 +1,7 @@
 import { useData } from '../../context/DataContext';
-
-function StatusBadge({ status }) {
-  const map = {
-    Pending: 'text-bg-warning',
-    Approved: 'text-bg-success',
-    Rejected: 'text-bg-danger',
-    Returned: 'text-bg-secondary',
-  };
-  return <span className={`badge ${map[status] || 'text-bg-light'}`}>{status}</span>;
-}
+import PageHeader from '../../components/PageHeader';
+import StatusBadge from '../../components/StatusBadge';
+import EmptyRow from '../../components/EmptyRow';
 
 export default function MyRequests() {
   const { requests, session } = useData();
@@ -18,11 +11,11 @@ export default function MyRequests() {
 
   return (
     <div>
-      <h4 className="fw-bold mb-3">My Requests</h4>
-      <div className="card border-0 shadow-sm">
+      <PageHeader title="My Requests" subtitle="Track the status of your borrow requests" />
+      <div className="card">
         <div className="table-responsive">
           <table className="table mb-0 align-middle">
-            <thead className="table-light">
+            <thead>
               <tr>
                 <th>Book Title</th>
                 <th>Request Date</th>
@@ -32,11 +25,7 @@ export default function MyRequests() {
             </thead>
             <tbody>
               {myRequests.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="text-center text-muted py-4">
-                    No requests yet. Go browse available books!
-                  </td>
-                </tr>
+                <EmptyRow colSpan={4} text="No requests yet. Go browse available books!" />
               )}
               {myRequests.map((r) => (
                 <tr key={r.id}>

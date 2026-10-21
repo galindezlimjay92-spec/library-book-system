@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
+import StatCard from '../../components/StatCard';
 
 export default function StudentDashboard() {
   const { books, requests, session } = useData();
@@ -21,19 +22,9 @@ export default function StudentDashboard() {
       <h4 className="fw-bold mb-1">Welcome, {session.name} 👋</h4>
       <p className="text-muted mb-4">Here's what's happening with your library account.</p>
 
-      <div className="row mb-4">
+      <div className="row g-3 row-cols-1 row-cols-sm-2 row-cols-lg-4 mb-4">
         {stats.map((s) => (
-          <div className="col-sm-6 col-lg-3 mb-3" key={s.label}>
-            <div className={`card border-0 shadow-sm h-100 border-start border-4 border-${s.color}`}>
-              <div className="card-body d-flex align-items-center">
-                <i className={`bi ${s.icon} fs-2 text-${s.color} me-3`}></i>
-                <div>
-                  <div className="fs-4 fw-bold">{s.value}</div>
-                  <div className="text-muted small">{s.label}</div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <StatCard key={s.label} {...s} />
         ))}
       </div>
 

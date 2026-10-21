@@ -59,6 +59,7 @@ app.post('/api/books', (req, res) => {
 
     books.push(newBook);
 
+    console.log('--- Book added ---');
     console.log(`Title: ${title}`);
     console.log(`Author: ${author}`);
 
@@ -66,12 +67,31 @@ app.post('/api/books', (req, res) => {
 });
 
 app.put('/api/books/:id', (req, res) => {
-    const index = books.findIndex((b) => String(b.id) === req.params.id);
-    if (index === -1) {
-        return res.status(404).json({ message: 'Book not found.' });
-    }
-
     const { title, author, category, isbn, description, totalCopies } = req.body;
+    const index = books.findIndex((b) => String(b.id) === req.params.id);
+
+    if (index === -1) {
+        // The website's own catalog books (e.g. bk-001) were never sent to this
+        // server, so the first edit adds them here instead of failing.
+        if (!title || !author) {
+            return res.status(404).json({ message: 'Book not found.' });
+        }
+        const created = {
+            id: req.params.id,
+            title: title,
+            author: author,
+            category: category || '',
+            isbn: isbn || '',
+            description: description || '',
+            totalCopies: Number(totalCopies) || 1
+        };
+        books.push(created);
+
+        console.log('--- Book updated ---');
+        console.log(`Title: ${created.title}`);
+        console.log(`Author: ${created.author}`);
+        return res.json(created);
+    }
 
     books[index] = {
         ...books[index],
@@ -83,18 +103,37 @@ app.put('/api/books/:id', (req, res) => {
         totalCopies: totalCopies !== undefined ? Number(totalCopies) : books[index].totalCopies
     };
 
+    console.log('--- Book updated ---');
+    console.log(`Title: ${books[index].title}`);
+    console.log(`Author: ${books[index].author}`);
+
     res.json(books[index]);
 });
 
 app.delete('/api/books/:id', (req, res) => {
     const before = books.length;
+    const removed = books.find((b) => String(b.id) === req.params.id);
     books = books.filter((b) => String(b.id) !== req.params.id);
 
     if (books.length === before) {
         return res.status(404).json({ message: 'Book not found.' });
     }
 
+    console.log('--- Book deleted ---');
+    console.log(`Title: ${removed.title}`);
+
     res.json({ message: 'Book deleted.' });
+});
+
+app.post('/api/login', (req, res) => {
+    const { name, email, role, provider } = req.body;
+
+    console.log('--- Login ---');
+    console.log(`Name: ${name}`);
+    console.log(`Email: ${email}`);
+    console.log(`Role: ${role}${provider ? ' (' + provider + ')' : ''}`);
+
+    res.json({ message: 'Login recorded.' });
 });
 
 app.listen(8080, () => {

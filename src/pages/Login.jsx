@@ -52,9 +52,9 @@ export default function Login() {
 
   return (
     <div
-      className="min-vh-100 d-flex align-items-center justify-content-center justify-content-lg-end"
+      className="min-vh-100 d-flex align-items-center justify-content-center"
       style={{
-        backgroundImage: `linear-gradient(90deg, rgba(6,10,20,0.15) 0%, rgba(6,10,20,0.55) 60%, rgba(6,10,20,0.75) 100%), url(${loginBg})`,
+        backgroundImage: `linear-gradient(rgba(6,10,20,0.35), rgba(6,10,20,0.6)), url(${loginBg})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         padding: '1.5rem',
@@ -65,7 +65,6 @@ export default function Login() {
         style={{
           maxWidth: 360,
           width: '100%',
-          marginRight: 'clamp(16px, 3vw, 48px)',
           background: 'rgba(10, 16, 32, 0.72)',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',

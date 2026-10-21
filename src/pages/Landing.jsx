@@ -32,14 +32,14 @@ export default function Landing() {
         className="d-flex align-items-center"
         style={{
           minHeight: '78vh',
-          backgroundImage: `linear-gradient(90deg, rgba(6,10,20,0.35) 0%, rgba(6,10,20,0.65) 55%, rgba(6,10,20,0.85) 100%), url(${loginBg})`,
+          backgroundImage: `linear-gradient(270deg, rgba(6,10,20,0.85) 0%, rgba(6,10,20,0.55) 50%, rgba(6,10,20,0.05) 100%), url(${loginBg})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
       >
         <div className="container py-5">
           <div className="row">
-            <div className="col-lg-7 col-xl-6 text-white">
+            <div className="col-lg-6 offset-lg-6 text-white">
               <div className="d-inline-flex align-items-center gap-2 mb-3 px-3 py-2 rounded-pill" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}>
                 <i className="bi bi-journal-bookmark-fill text-primary"></i>
                 <span className="small fw-semibold">Library Book System</span>

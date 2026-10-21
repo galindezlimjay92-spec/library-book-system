@@ -1,18 +1,166 @@
+:root {
+  --brand: #20336b;
+  --brand-2: #3b5bdb;
+  --radius: 1rem;
+  --shadow-sm: 0 2px 8px rgba(32, 51, 107, 0.08);
+  --shadow-md: 0 12px 30px rgba(32, 51, 107, 0.16);
+  --bs-primary: #3b5bdb;
+  --bs-primary-rgb: 59, 91, 219;
+}
+
 body {
-  background-color: #f4f6fb;
+  background: #f4f6fb;
+  /* system fonts = no external request, still works offline (PWA) */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-.navbar-brand {
-  letter-spacing: 0.3px;
+/* Bootstrap 5.3 buttons use their own variables, so override these too */
+.btn-primary {
+  --bs-btn-bg: var(--brand-2);
+  --bs-btn-border-color: var(--brand-2);
+  --bs-btn-hover-bg: #2f4ac0;
+  --bs-btn-hover-border-color: #2f4ac0;
+  --bs-btn-active-bg: #2a42ad;
+  --bs-btn-active-border-color: #2a42ad;
+  --bs-btn-disabled-bg: var(--brand-2);
+  --bs-btn-disabled-border-color: var(--brand-2);
 }
+.btn { border-radius: 0.6rem; }
 
+/* Cards */
 .card {
-  border-radius: 0.75rem;
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.hover-lift { transition: transform 0.2s, box-shadow 0.2s; }
+.hover-lift:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+
+/* Tables */
+.table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c757d;
+  background: #f8f9fc;
+}
+.table > :not(caption) > * > * { padding: 0.9rem 1rem; }
+.table > tbody > tr:hover > td { background: #f8f9ff; }
+
+/* Badges */
+.badge { padding: 0.45em 0.75em; border-radius: 999px; font-weight: 600; }
+
+/* Avatars */
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff; font-weight: 700; font-size: 0.85rem;
+}
+.avatar-soft { background: #e7ecfd; color: var(--brand-2); }
+
+/* Stat cards */
+.stat-icon {
+  width: 52px; height: 52px; border-radius: 14px;
+  display: grid; place-items: center; font-size: 1.5rem;
+}
+.stat-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+
+/* Solid colored stat cards */
+.stat-card { color: #fff; }
+.stat-card .stat-icon { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.stat-card .stat-label { color: rgba(255, 255, 255, 0.92); font-size: 0.85rem; }
+.stat-card.stat-primary   { background: linear-gradient(135deg, #2f4ac0, #4c6ef5); }
+.stat-card.stat-info      { background: linear-gradient(135deg, #0b7285, #15aabf); }
+.stat-card.stat-success   { background: linear-gradient(135deg, #2b8a3e, #37b24d); }
+.stat-card.stat-warning   { background: linear-gradient(135deg, #d9480f, #f76707); }
+.stat-card.stat-danger    { background: linear-gradient(135deg, #c92a2a, #fa5252); }
+.stat-card.stat-secondary { background: linear-gradient(135deg, #6741d9, #9775fa); }
+
+/* Book cards */
+.book-cover {
+  height: 130px; position: relative;
+  display: grid; place-items: center;
+  color: #fff; font-size: 2.5rem;
+}
+.book-cover .badge { position: absolute; top: 0.75rem; right: 0.75rem; font-size: 0.7rem; }
+.line-clamp-3 {
+  display: -webkit-box; -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.table thead th {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #6c757d;
+/* Soft status pills */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.35em 0.8em; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600;
+}
+.status-pending  { background: #fff4db; color: #a56200; }
+.status-approved { background: #dcf7ea; color: #0a7a4b; }
+.status-rejected { background: #fde4e4; color: #b42318; }
+.status-returned { background: #e9ecf3; color: #52607a; }
+
+/* Page transition */
+.page-enter { animation: fadeUp 0.35s ease both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Shared background for auth pages */
+.auth-bg {
+  background:
+    linear-gradient(135deg, rgba(6, 10, 20, 0.45), rgba(6, 10, 20, 0.7)),
+    url('./assets/login-bg.jpg') center / cover no-repeat;
+}
+
+/* ---------- Sidebar layout ---------- */
+.sidebar {
+  position: fixed; top: 0; bottom: 0; left: 0; width: 260px; z-index: 1040;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #1d4ed8 0%, #20336b 100%);
+  color: #fff;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  box-shadow: 4px 0 24px rgba(32, 51, 107, 0.25);
+}
+.sidebar.open { transform: none; }
+.sidebar-brand {
+  padding: 1.5rem 1rem 1.1rem; text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sidebar-logo {
+  width: 60px; height: 60px; border-radius: 16px; margin-bottom: 0.6rem;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
+.sidebar-nav {
+  flex: 1; overflow-y: auto; padding: 1rem 0.75rem;
+  display: flex; flex-direction: column; gap: 0.25rem;
+}
+.sidebar-link {
+  display: flex; align-items: center; gap: 0.75rem;
+  width: 100%; padding: 0.7rem 0.9rem; border: 0; border-radius: 0.7rem;
+  background: transparent; color: rgba(255, 255, 255, 0.75);
+  font-size: 0.92rem; font-weight: 500; text-align: left; text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-link i { font-size: 1.1rem; }
+.sidebar-link:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.sidebar-link.active { background: rgba(255, 255, 255, 0.2); color: #fff; font-weight: 600; }
+.sidebar-footer { padding: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.sidebar-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1035; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 1030;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.7rem 1rem; background: #fff; box-shadow: var(--shadow-sm);
+}
+.app-content { min-height: 100vh; }
+.page-wrap { max-width: 1200px; margin: 0 auto; }
+
+/* Desktop: sidebar always visible, no top bar */
+@media (min-width: 992px) {
+  .sidebar { transform: none; }
+  .app-content { margin-left: 260px; }
+  .topbar, .sidebar-backdrop { display: none; }
 }

@@ -1,4 +1,6 @@
 import { useData } from '../../context/DataContext';
+import PageHeader from '../../components/PageHeader';
+import EmptyRow from '../../components/EmptyRow';
 
 export default function ManageStudents() {
   const { students, requests } = useData();
@@ -9,11 +11,11 @@ export default function ManageStudents() {
 
   return (
     <div>
-      <h4 className="fw-bold mb-3">Registered Students</h4>
-      <div className="card border-0 shadow-sm">
+      <PageHeader title="Registered Students" subtitle={`${students.length} student${students.length === 1 ? '' : 's'} registered`} />
+      <div className="card">
         <div className="table-responsive">
           <table className="table mb-0 align-middle">
-            <thead className="table-light">
+            <thead>
               <tr>
                 <th>Name</th>
                 <th>Student ID</th>
@@ -23,18 +25,23 @@ export default function ManageStudents() {
             </thead>
             <tbody>
               {students.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="text-center text-muted py-4">
-                    No students registered yet.
-                  </td>
-                </tr>
+                <EmptyRow colSpan={4} icon="bi-people" text="No students registered yet." />
               )}
               {students.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.name}</td>
+                  <td>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="avatar avatar-soft">{s.name?.[0]?.toUpperCase()}</span>
+                      <span className="fw-semibold">{s.name}</span>
+                    </div>
+                  </td>
                   <td>{s.studentId}</td>
                   <td>{s.email}</td>
-                  <td>{activeCount(s.id)}</td>
+                  <td>
+                    <span className={`badge ${activeCount(s.id) > 0 ? 'text-bg-primary' : 'text-bg-light border'}`}>
+                      {activeCount(s.id)}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -1,4 +1,7 @@
 import { useData } from '../../context/DataContext';
+import PageHeader from '../../components/PageHeader';
+import StatusBadge from '../../components/StatusBadge';
+import EmptyRow from '../../components/EmptyRow';
 
 export default function History() {
   const { requests, session } = useData();
@@ -8,11 +11,11 @@ export default function History() {
 
   return (
     <div>
-      <h4 className="fw-bold mb-3">Borrowing History</h4>
-      <div className="card border-0 shadow-sm">
+      <PageHeader title="Borrowing History" subtitle="Books you have returned or were rejected" />
+      <div className="card">
         <div className="table-responsive">
           <table className="table mb-0 align-middle">
-            <thead className="table-light">
+            <thead>
               <tr>
                 <th>Book Title</th>
                 <th>Request Date</th>
@@ -21,21 +24,13 @@ export default function History() {
               </tr>
             </thead>
             <tbody>
-              {history.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="text-center text-muted py-4">
-                    No history yet.
-                  </td>
-                </tr>
-              )}
+              {history.length === 0 && <EmptyRow colSpan={4} icon="bi-clock-history" text="No history yet." />}
               {history.map((r) => (
                 <tr key={r.id}>
                   <td>{r.bookTitle}</td>
                   <td>{new Date(r.requestDate).toLocaleDateString()}</td>
                   <td>
-                    <span className={`badge ${r.status === 'Returned' ? 'text-bg-secondary' : 'text-bg-danger'}`}>
-                      {r.status}
-                    </span>
+                    <StatusBadge status={r.status} />
                   </td>
                   <td>{r.returnDate ? new Date(r.returnDate).toLocaleDateString() : '—'}</td>
                 </tr>

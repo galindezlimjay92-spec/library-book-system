@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../../context/DataContext';
 import BookCard from '../../components/BookCard';
+import PageHeader from '../../components/PageHeader';
 
 export default function BrowseBooks() {
   const { books, requests, session, createBorrowRequest } = useData();
@@ -46,18 +47,23 @@ export default function BrowseBooks() {
 
   return (
     <div>
-      <h4 className="fw-bold mb-3">Browse Available Books</h4>
+      <PageHeader title="Browse Available Books" subtitle={`${filtered.length} book${filtered.length === 1 ? '' : 's'} found`} />
 
       {message && <div className={`alert alert-${message.type} py-2 small`}>{message.text}</div>}
 
       <div className="row g-2 mb-4">
         <div className="col-md-5">
-          <input
-            className="form-control"
-            placeholder="Search by title or author..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="input-group">
+            <span className="input-group-text bg-white">
+              <i className="bi bi-search"></i>
+            </span>
+            <input
+              className="form-control"
+              placeholder="Search by title or author..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
         <div className="col-md-3">
           <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>

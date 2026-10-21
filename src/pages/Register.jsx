@@ -39,8 +39,8 @@ export default function Register() {
   }
 
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-light py-4">
-      <div className="card shadow border-0" style={{ maxWidth: 460, width: '100%' }}>
+    <div className="auth-bg min-vh-100 d-flex align-items-center justify-content-center p-3">
+      <div className="card shadow-lg" style={{ maxWidth: 460, width: '100%' }}>
         <div className="card-body p-4">
           <h4 className="fw-bold text-center mb-1">Student Registration</h4>
           <p className="text-center text-muted small mb-4">
