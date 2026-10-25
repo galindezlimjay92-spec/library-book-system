@@ -6,7 +6,7 @@ export default function Backend() {
     const [author, setAuthor] = useState('');
     const [editingId, setEditingId] = useState(null); // null = Add mode, may id = Edit mode
 
-    const api_url = 'https://frabjous-melba-38e0bc.netlify.app/api/books'
+    const api_url = 'https://library-book-system.onrender.com'
 
     function loadBooks() {
         fetch(api_url)
