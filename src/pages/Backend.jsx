@@ -4,7 +4,7 @@ export default function Backend() {
     const [books, setBooks] = useState([]);
     const [title, setTitle] = useState('');
     const [author, setAuthor] = useState('');
-    const [editingId, setEditingId] = useState(null); // null = Add mode, may id = Edit mode
+    const [editingId, setEditingId] = useState(null);
 
     const api_url = 'https://library-book-system.onrender.com/api/books'
 
