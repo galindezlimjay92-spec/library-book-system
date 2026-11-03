@@ -6,7 +6,7 @@ export default function Backend() {
     const [author, setAuthor] = useState('');
     const [editingId, setEditingId] = useState(null); // null = Add mode, may id = Edit mode
 
-    const api_url = 'https://library-book-system.onrender.com'
+    const api_url = 'https://library-book-system.onrender.com/api/books'
 
     function loadBooks() {
         fetch(api_url)
@@ -17,7 +17,6 @@ export default function Backend() {
             })
             .catch((err) => console.log(err));
     }
-E
     useEffect(() => {
         loadBooks();
     }, []);
