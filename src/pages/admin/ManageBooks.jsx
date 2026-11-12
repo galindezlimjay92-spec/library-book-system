@@ -1,28 +1,50 @@
-import { useState } from 'react';
-import { useData } from '../../context/DataContext';
-import { seedBooks } from '../../data/seedBooks';
+import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyRow from '../../components/EmptyRow';
 
+const API_URL = 'http://localhost:8080/api/books';
 const emptyForm = { title: '', author: '', category: '', isbn: '', description: '', totalCopies: 1 };
 
 export default function ManageBooks() {
-  const { books, addBook, updateBook, deleteBook, syncSeedBooks } = useData();
+  const [books, setBooks] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const existingIds = new Set(books.map((b) => b.id));
-  const missingSeedCount = seedBooks.filter((b) => !existingIds.has(b.id)).length;
+  function loadBooks() {
+    fetch(API_URL)
+      .then((res) => res.json())
+      .then((data) =>
+        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
+      )
+      .catch((err) => console.log(err));
+  }
+
+  useEffect(() => {
+    loadBooks();
+  }, []);
 
   const visible = books.filter((b) =>
     `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Hakbang 1: itatabi lang ang librong buburahin at ipapakita ang confirm box
   function handleDelete(book) {
-    if (window.confirm(`Delete "${book.title}"? This can't be undone.`)) {
-      deleteBook(book.id);
+    setDeleteTarget(book);
+  }
+
+  // Hakbang 2: kapag pinindot ang Delete sa confirm box, saka ipapadala sa server
+  async function confirmDelete() {
+    const book = deleteTarget;
+    setDeleteTarget(null);
+    try {
+      const res = await fetch(`${API_URL}/${book.id}`, { method: 'DELETE' });
+      console.log('Delete status:', res.status);
+      loadBooks();
+    } catch (err) {
+      console.log('Delete error:', err);
     }
   }
 
@@ -30,20 +52,24 @@ export default function ManageBooks() {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (editingId) {
-      const original = books.find((b) => b.id === editingId);
-      const newTotal = Number(form.totalCopies);
-      const diff = newTotal - original.totalCopies;
-      updateBook(editingId, {
-        ...form,
-        totalCopies: newTotal,
-        availableCopies: Math.max(0, original.availableCopies + diff),
-      });
-    } else {
-      addBook(form);
+    const options = {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, totalCopies: Number(form.totalCopies) }),
+    };
+
+    try {
+      if (editingId) {
+        await fetch(`${API_URL}/${editingId}`, { method: 'PUT', ...options });
+      } else {
+        await fetch(API_URL, { method: 'POST', ...options });
+      }
+      loadBooks();
+    } catch (err) {
+      console.log(err);
     }
+
     setForm(emptyForm);
     setEditingId(null);
     setShowForm(false);
@@ -71,16 +97,6 @@ export default function ManageBooks() {
   return (
     <div>
       <PageHeader title="Manage Books" subtitle={`${books.length} titles in the catalog`}>
-        {missingSeedCount > 0 && books.length < seedBooks.length && (
-          <button
-            className="btn btn-outline-secondary"
-            onClick={syncSeedBooks}
-            title="Add any catalog books that aren't in this list yet"
-          >
-            <i className="bi bi-arrow-repeat me-1"></i>
-            Add {missingSeedCount} missing catalog book{missingSeedCount === 1 ? '' : 's'}
-          </button>
-        )}
         <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>
           <i className="bi bi-plus-lg me-1"></i>
           {showForm ? 'Close Form' : 'Add Book'}
@@ -216,6 +232,28 @@ export default function ManageBooks() {
           </table>
         </div>
       </div>
+
+      {deleteTarget && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+          style={{ background: 'rgba(0,0,0,0.5)', zIndex: 1050 }}
+        >
+          <div className="card shadow" style={{ maxWidth: 400, width: '90%' }}>
+            <div className="card-body">
+              <h6 className="fw-bold">Delete book?</h6>
+              <p className="mb-3">Delete "{deleteTarget.title}"? This can't be undone.</p>
+              <div className="d-flex justify-content-end gap-2">
+                <button className="btn btn-outline-secondary" onClick={() => setDeleteTarget(null)}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger" onClick={confirmDelete}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
