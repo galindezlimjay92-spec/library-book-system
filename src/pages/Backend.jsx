@@ -6,7 +6,7 @@ export default function Backend() {
     const [author, setAuthor] = useState('');
     const [editingId, setEditingId] = useState(null);
 
-    const api_url = 'http://localhost:8080/api/books'
+    const api_url = 'https://library-book-system.onrender.com/api/books'
     function loadBooks() {
         fetch(api_url)
             .then((response) => response.json())
