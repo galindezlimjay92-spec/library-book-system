@@ -1,13 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import {
-  doc, getDoc, setDoc, serverTimestamp,
-  collection, onSnapshot, addDoc, updateDoc, deleteDoc,
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const DataContext = createContext(null);
 
+const API_URL = 'http://localhost:8080/api/books';
 const LOGIN_URL = 'http://localhost:8080/api/login';
 
 // Tells the Express server who just logged in so it prints it in the
@@ -24,6 +22,9 @@ function reportLogin(sess) {
     }),
   }).catch((err) => console.error('Could not report login to backend server:', err));
 }
+
+const backendOffline = (err) =>
+  console.error('Could not sync to backend server (is node server.js running?):', err);
 
 const KEYS = {
   students: 'lbs_students',
@@ -65,7 +66,7 @@ export function DataProvider({ children }) {
     const hasDefault = stored.some((a) => a.email.toLowerCase() === DEFAULT_ADMIN.email);
     return hasDefault ? stored : [DEFAULT_ADMIN, ...stored];
   });
-  // Books now come live from Firestore (collection "books").
+  // Books now come from the Express/MySQL backend, not localStorage or seed data.
   const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState(() => load(KEYS.requests, []));
   const [session, setSession] = useState(() => load(KEYS.session, null));
@@ -83,14 +84,14 @@ export function DataProvider({ children }) {
     else localStorage.removeItem(KEYS.session);
   }, [session]);
 
-  // Live books from Firestore: updates automatically on every device.
+  // Load the books from the Express/MySQL backend (same source as Manage Books).
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, 'books'),
-      (snap) => setBooks(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => console.error('Could not load books:', err)
-    );
-    return () => unsubscribe();
+    fetch(API_URL)
+      .then((res) => res.json())
+      .then((data) =>
+        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
+      )
+      .catch(backendOffline);
   }, []);
 
   // Watch Firebase Auth for Google sign-ins/sign-outs and keep `session` in
@@ -219,22 +220,45 @@ export function DataProvider({ children }) {
   // then set automatically by the onAuthStateChanged listener above, which
   // reads (or creates) the user's role from Firestore.
 
-  // ---------- Books (Firestore) ----------
-  async function addBook(book) {
-    const totalCopies = Number(book.totalCopies);
-    await addDoc(collection(db, 'books'), {
+  // ---------- Books ----------
+  function addBook(book) {
+    const newBook = {
+      id: genId('bk'),
+      availableCopies: Number(book.totalCopies),
       ...book,
-      totalCopies,
-      availableCopies: totalCopies,
-    });
+      totalCopies: Number(book.totalCopies),
+    };
+    setBooks((prev) => [...prev, newBook]);
+
+    // Mirror the new book to the Express server (port 8080). Best-effort:
+    // if the server isn't running, the book is still added to the app above.
+    fetch(`${API_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newBook),
+    }).catch(backendOffline);
   }
 
-  async function updateBook(id, updates) {
-    await updateDoc(doc(db, 'books', id), updates);
+  function updateBook(id, updates) {
+    setBooks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, ...updates } : b))
+    );
+
+    // Only real edits from Manage Books (which include title/author) are
+    // mirrored. Borrow/return stock changes only touch availableCopies,
+    // which the server doesn't store.
+    if (updates.title !== undefined) {
+      fetch(`${API_URL}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      }).catch(backendOffline);
+    }
   }
 
-  async function deleteBook(id) {
-    await deleteDoc(doc(db, 'books', id));
+  function deleteBook(id) {
+    setBooks((prev) => prev.filter((b) => b.id !== id));
+    fetch(`${API_URL}/${id}`, { method: 'DELETE' }).catch(backendOffline);
   }
 
   // ---------- Borrow Requests ----------

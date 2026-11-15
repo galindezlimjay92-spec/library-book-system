@@ -1,35 +1,48 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyRow from '../../components/EmptyRow';
-import { useData } from '../../context/DataContext';
 
+const API_URL = 'http://localhost:8080/api/books';
 const emptyForm = { title: '', author: '', category: '', isbn: '', description: '', totalCopies: 1 };
 
 export default function ManageBooks() {
-  // Books now come from DataContext (Firestore), the same source the Student pages use.
-  const { books, addBook, updateBook, deleteBook } = useData();
-
+  const [books, setBooks] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
 
+  function loadBooks() {
+    fetch(API_URL)
+      .then((res) => res.json())
+      .then((data) =>
+        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
+      )
+      .catch((err) => console.log(err));
+  }
+
+  useEffect(() => {
+    loadBooks();
+  }, []);
+
   const visible = books.filter((b) =>
     `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Step 1: only remember which book to delete and show the confirm box
+  // Hakbang 1: itatabi lang ang librong buburahin at ipapakita ang confirm box
   function handleDelete(book) {
     setDeleteTarget(book);
   }
 
-  // Step 2: when Delete is pressed in the confirm box, remove it from Firestore
+  // Hakbang 2: kapag pinindot ang Delete sa confirm box, saka ipapadala sa server
   async function confirmDelete() {
     const book = deleteTarget;
     setDeleteTarget(null);
     try {
-      await deleteBook(book.id);
+      const res = await fetch(`${API_URL}/${book.id}`, { method: 'DELETE' });
+      console.log('Delete status:', res.status);
+      loadBooks();
     } catch (err) {
       console.log('Delete error:', err);
     }
@@ -41,23 +54,18 @@ export default function ManageBooks() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const newTotal = Number(form.totalCopies);
+    const options = {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, totalCopies: Number(form.totalCopies) }),
+    };
 
     try {
       if (editingId) {
-        // Keep "available" in step with the change in total copies
-        const current = books.find((b) => b.id === editingId);
-        const diff = newTotal - (current?.totalCopies ?? newTotal);
-        const available = Math.max(0, (current?.availableCopies ?? newTotal) + diff);
-
-        await updateBook(editingId, {
-          ...form,
-          totalCopies: newTotal,
-          availableCopies: available,
-        });
+        await fetch(`${API_URL}/${editingId}`, { method: 'PUT', ...options });
       } else {
-        await addBook({ ...form, totalCopies: newTotal });
+        await fetch(API_URL, { method: 'POST', ...options });
       }
+      loadBooks();
     } catch (err) {
       console.log(err);
     }
@@ -72,8 +80,8 @@ export default function ManageBooks() {
       title: book.title,
       author: book.author,
       category: book.category,
-      isbn: book.isbn || '',
-      description: book.description || '',
+      isbn: book.isbn,
+      description: book.description,
       totalCopies: book.totalCopies,
     });
     setEditingId(book.id);
