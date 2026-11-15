@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { seedBooks } from '../data/seedBooks';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -30,17 +29,9 @@ const backendOffline = (err) =>
 const KEYS = {
   students: 'lbs_students',
   admins: 'lbs_admins',
-  books: 'lbs_books',
   requests: 'lbs_requests',
   session: 'lbs_session',
-  seedVersion: 'lbs_seed_version',
 };
-
-// Bump SEED_VERSION whenever src/data/seedBooks.js gets new books. Browsers that
-// already saved their own copy of the catalog get topped up once, up to
-// CATALOG_SIZE titles, without touching existing books or their edits.
-const SEED_VERSION = 2;
-const CATALOG_SIZE = 150;
 
 function load(key, fallback) {
   try {
@@ -53,17 +44,6 @@ function load(key, fallback) {
 
 function save(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
-}
-
-function initialBooks() {
-  const stored = load(KEYS.books, null);
-  if (!stored) return seedBooks;
-  if (load(KEYS.seedVersion, 0) >= SEED_VERSION) return stored;
-
-  const have = new Set(stored.map((b) => b.id));
-  const room = Math.max(0, CATALOG_SIZE - stored.length);
-  const extra = seedBooks.filter((b) => !have.has(b.id)).slice(0, room);
-  return [...stored, ...extra];
 }
 
 function genId(prefix) {
@@ -86,7 +66,8 @@ export function DataProvider({ children }) {
     const hasDefault = stored.some((a) => a.email.toLowerCase() === DEFAULT_ADMIN.email);
     return hasDefault ? stored : [DEFAULT_ADMIN, ...stored];
   });
-  const [books, setBooks] = useState(initialBooks);
+  // Books now come from the Express/MySQL backend, not localStorage or seed data.
+  const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState(() => load(KEYS.requests, []));
   const [session, setSession] = useState(() => load(KEYS.session, null));
   // True until we've checked whether a Google/Firebase session is already
@@ -97,13 +78,21 @@ export function DataProvider({ children }) {
 
   useEffect(() => save(KEYS.students, students), [students]);
   useEffect(() => save(KEYS.admins, admins), [admins]);
-  useEffect(() => save(KEYS.books, books), [books]);
-  useEffect(() => save(KEYS.seedVersion, SEED_VERSION), []);
   useEffect(() => save(KEYS.requests, requests), [requests]);
   useEffect(() => {
     if (session) save(KEYS.session, session);
     else localStorage.removeItem(KEYS.session);
   }, [session]);
+
+  // Load the books from the Express/MySQL backend (same source as Manage Books).
+  useEffect(() => {
+    fetch(API_URL)
+      .then((res) => res.json())
+      .then((data) =>
+        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
+      )
+      .catch(backendOffline);
+  }, []);
 
   // Watch Firebase Auth for Google sign-ins/sign-outs and keep `session` in
   // sync with each user's role, which now lives in Firestore (users/{uid})
@@ -272,17 +261,6 @@ export function DataProvider({ children }) {
     fetch(`${API_URL}/${id}`, { method: 'DELETE' }).catch(backendOffline);
   }
 
-  // Adds any books from the seed catalog (src/data/seedBooks.js) that
-  // aren't in the current list yet, matched by id. Existing books (and any
-  // edits made to them) are left untouched — this only fills in new ones.
-  function syncSeedBooks() {
-    setBooks((prev) => {
-      const existingIds = new Set(prev.map((b) => b.id));
-      const missing = seedBooks.filter((b) => !existingIds.has(b.id));
-      return [...prev, ...missing];
-    });
-  }
-
   // ---------- Borrow Requests ----------
   function createBorrowRequest({ bookId }) {
     if (!session || session.role !== 'student') throw new Error('Log in as a student first.');
@@ -363,7 +341,6 @@ export function DataProvider({ children }) {
     addBook,
     updateBook,
     deleteBook,
-    syncSeedBooks,
     createBorrowRequest,
     approveRequest,
     rejectRequest,
