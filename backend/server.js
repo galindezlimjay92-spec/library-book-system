@@ -8,11 +8,16 @@ const PORT = process.env.PORT || 8080;
 app.use(express.json());
 app.use(cors());
 
+// Uses environment variables when available (Render / cloud MySQL).
+// If they are not set, it falls back to the local XAMPP database,
+// so it still works on your laptop.
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'library_db'
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'library_db',
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined
 });
 
 db.getConnection()
@@ -116,7 +121,7 @@ app.delete('/api/books/:id', async (req, res) => {
     }
 });
 
-// Hindi ginalaw: ginagamit ito ng DataContext.jsx
+// Left unchanged: this is used by DataContext.jsx
 app.post('/api/login', (req, res) => {
     const { name, email, role, provider } = req.body;
     console.log(`Login: ${name} (${email}) - ${role}${provider ? ' via ' + provider : ''}`);
