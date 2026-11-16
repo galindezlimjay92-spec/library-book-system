@@ -1,50 +1,44 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useData } from '../../context/DataContext';
 import PageHeader from '../../components/PageHeader';
 import EmptyRow from '../../components/EmptyRow';
 
-const API_URL = 'http://localhost:8080/api/books';
-const emptyForm = { title: '', author: '', category: '', isbn: '', description: '', totalCopies: 1 };
+const emptyForm = {
+  title: '',
+  author: '',
+  category: '',
+  isbn: '',
+  description: '',
+  totalCopies: 1,
+};
 
 export default function ManageBooks() {
-  const [books, setBooks] = useState([]);
+  const { books, addBook, updateBook, deleteBook } = useData();
+
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
-
-  function loadBooks() {
-    fetch(API_URL)
-      .then((res) => res.json())
-      .then((data) =>
-        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
-      )
-      .catch((err) => console.log(err));
-  }
-
-  useEffect(() => {
-    loadBooks();
-  }, []);
+  const [saving, setSaving] = useState(false);
 
   const visible = books.filter((b) =>
     `${b.title} ${b.author}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Hakbang 1: itatabi lang ang librong buburahin at ipapakita ang confirm box
   function handleDelete(book) {
     setDeleteTarget(book);
   }
 
-  // Hakbang 2: kapag pinindot ang Delete sa confirm box, saka ipapadala sa server
   async function confirmDelete() {
-    const book = deleteTarget;
-    setDeleteTarget(null);
+    if (!deleteTarget) return;
+
     try {
-      const res = await fetch(`${API_URL}/${book.id}`, { method: 'DELETE' });
-      console.log('Delete status:', res.status);
-      loadBooks();
+      await deleteBook(deleteTarget.id);
+      setDeleteTarget(null);
     } catch (err) {
-      console.log('Delete error:', err);
+      console.error('Delete error:', err);
+      alert('Failed to delete book. Check that the Express server and MySQL are running.');
     }
   }
 
@@ -54,35 +48,39 @@ export default function ManageBooks() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const options = {
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, totalCopies: Number(form.totalCopies) }),
-    };
+    setSaving(true);
 
     try {
-      if (editingId) {
-        await fetch(`${API_URL}/${editingId}`, { method: 'PUT', ...options });
-      } else {
-        await fetch(API_URL, { method: 'POST', ...options });
-      }
-      loadBooks();
-    } catch (err) {
-      console.log(err);
-    }
+      const bookData = {
+        ...form,
+        totalCopies: Number(form.totalCopies),
+      };
 
-    setForm(emptyForm);
-    setEditingId(null);
-    setShowForm(false);
+      if (editingId !== null) {
+        await updateBook(editingId, bookData);
+      } else {
+        await addBook(bookData);
+      }
+
+      setForm(emptyForm);
+      setEditingId(null);
+      setShowForm(false);
+    } catch (err) {
+      console.error('Save error:', err);
+      alert('Failed to save book. Check that the Express server and MySQL are running.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function startEdit(book) {
     setForm({
-      title: book.title,
-      author: book.author,
-      category: book.category,
-      isbn: book.isbn,
-      description: book.description,
-      totalCopies: book.totalCopies,
+      title: book.title || '',
+      author: book.author || '',
+      category: book.category || '',
+      isbn: book.isbn || '',
+      description: book.description || '',
+      totalCopies: book.totalCopies ?? 1,
     });
     setEditingId(book.id);
     setShowForm(true);
@@ -106,7 +104,7 @@ export default function ManageBooks() {
       {showForm && (
         <div className="card border-0 shadow-sm mb-4">
           <div className="card-body">
-            <h6 className="fw-bold mb-3">{editingId ? 'Edit Book' : 'New Book'}</h6>
+            <h6 className="fw-bold mb-3">{editingId !== null ? 'Edit Book' : 'New Book'}</h6>
             <form onSubmit={handleSubmit}>
               <div className="row g-3">
                 <div className="col-md-6">
@@ -149,10 +147,10 @@ export default function ManageBooks() {
                 </div>
               </div>
               <div className="mt-3 d-flex gap-2">
-                <button type="submit" className="btn btn-primary">
-                  {editingId ? 'Save Changes' : 'Add Book'}
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Saving...' : editingId !== null ? 'Save Changes' : 'Add Book'}
                 </button>
-                <button type="button" className="btn btn-outline-secondary" onClick={cancelForm}>
+                <button type="button" className="btn btn-outline-secondary" onClick={cancelForm} disabled={saving}>
                   Cancel
                 </button>
               </div>
@@ -186,7 +184,9 @@ export default function ManageBooks() {
               </tr>
             </thead>
             <tbody>
-              {visible.length === 0 && <EmptyRow colSpan={4} icon="bi-journal-x" text="No books found." />}
+              {visible.length === 0 && (
+                <EmptyRow colSpan={4} icon="bi-journal-x" text="No books found." />
+              )}
               {visible.map((b) => (
                 <tr key={b.id}>
                   <td>
@@ -198,14 +198,14 @@ export default function ManageBooks() {
                   </td>
                   <td style={{ minWidth: 160 }}>
                     <div className="d-flex justify-content-between small mb-1">
-                      <span>{b.availableCopies} available</span>
+                      <span>{b.availableCopies ?? b.totalCopies} available</span>
                       <span className="text-muted">of {b.totalCopies}</span>
                     </div>
                     <div className="progress" style={{ height: 6 }}>
                       <div
-                        className={`progress-bar ${b.availableCopies === 0 ? 'bg-danger' : ''}`}
+                        className={`progress-bar ${(b.availableCopies ?? b.totalCopies) === 0 ? 'bg-danger' : ''}`}
                         style={{
-                          width: `${b.totalCopies ? (b.availableCopies / b.totalCopies) * 100 : 0}%`,
+                          width: `${b.totalCopies ? ((b.availableCopies ?? b.totalCopies) / b.totalCopies) * 100 : 0}%`,
                         }}
                       ></div>
                     </div>
