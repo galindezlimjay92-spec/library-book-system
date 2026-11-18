@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import OfflineBanner from './components/OfflineBanner';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -45,47 +46,50 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<RootRedirect />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+    <>
+      <OfflineBanner />
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
-      <Route
-        path="/student"
-        element={
-          <ProtectedRoute role="student">
-            <StudentLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<StudentDashboard />} />
-        <Route path="books" element={<BrowseBooks />} />
-        <Route path="requests" element={<MyRequests />} />
-        <Route path="borrowed" element={<MyBorrowedBooks />} />
-        <Route path="history" element={<History />} />
-      </Route>
+        <Route
+          path="/student"
+          element={
+            <ProtectedRoute role="student">
+              <StudentLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<StudentDashboard />} />
+          <Route path="books" element={<BrowseBooks />} />
+          <Route path="requests" element={<MyRequests />} />
+          <Route path="borrowed" element={<MyBorrowedBooks />} />
+          <Route path="history" element={<History />} />
+        </Route>
 
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute role="admin">
-            <AdminLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<AdminDashboard />} />
-        <Route path="books" element={<ManageBooks />} />
-        <Route path="students" element={<ManageStudents />} />
-        <Route path="requests" element={<BorrowRequests />} />
-        <Route path="records" element={<LendingRecords />} />
-        <Route path="reports" element={<Reports />} />
-      </Route>
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="books" element={<ManageBooks />} />
+          <Route path="students" element={<ManageStudents />} />
+          <Route path="requests" element={<BorrowRequests />} />
+          <Route path="records" element={<LendingRecords />} />
+          <Route path="reports" element={<Reports />} />
+        </Route>
 
-      {/* Hidden page: no link to it anywhere in the admin/student menus. */}
-      <Route path="/backend" element={<Backend />} />
+        {/* Hidden page: no link to it anywhere in the admin/student menus. */}
+        <Route path="/backend" element={<Backend />} />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
 
