@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -403,6 +404,139 @@ app.put('/api/requests/:id/return', async (req, res) => {
         res.status(500).json({ message: 'Failed to mark as returned.' });
     } finally {
         conn.release();
+    }
+});
+
+// ===== ACCOUNTS =====
+
+function toUser(row) {
+    return {
+        id: String(row.id), // text, para tugma sa studentId ng requests
+        role: row.role,
+        name: row.name,
+        studentId: row.student_id,
+        email: row.email,
+        provider: 'email'
+    };
+}
+
+// Gumagawa ng default admin sa unang takbo ng server
+async function seedDefaultAdmin() {
+    try {
+        const [rows] = await db.query(
+            "SELECT id FROM users WHERE role = 'admin' AND email = ?",
+            ['admin@library.com']
+        );
+
+        if (rows.length === 0) {
+            const hash = await bcrypt.hash('admin123', 10);
+
+            await db.query(
+                `INSERT INTO users (role, name, email, password_hash)
+                 VALUES ('admin', 'Library Admin', 'admin@library.com', ?)`,
+                [hash]
+            );
+
+            console.log('Default admin created');
+        }
+    } catch (err) {
+        console.error('Could not create default admin:', err.message);
+    }
+}
+
+seedDefaultAdmin();
+
+// REGISTER (student or admin)
+app.post('/api/register', async (req, res) => {
+    const { role, name, studentId, email, password } = req.body;
+
+    if (!['student', 'admin'].includes(role)) {
+        return res.status(400).json({ message: 'Invalid role.' });
+    }
+
+    if (!name || !email || !password) {
+        return res.status(400).json({
+            message: 'Name, email and password are required.'
+        });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    try {
+        const [dupes] = await db.query(
+            'SELECT id FROM users WHERE role = ? AND email = ?',
+            [role, cleanEmail]
+        );
+
+        if (dupes.length > 0) {
+            return res.status(400).json({
+                message: 'Email is already registered.'
+            });
+        }
+
+        const hash = await bcrypt.hash(String(password), 10);
+
+        const [result] = await db.query(
+            `INSERT INTO users (role, name, student_id, email, password_hash)
+             VALUES (?, ?, ?, ?, ?)`,
+            [role, name, studentId || null, cleanEmail, hash]
+        );
+
+        const [rows] = await db.query(
+            'SELECT * FROM users WHERE id = ?',
+            [result.insertId]
+        );
+
+        res.status(201).json(toUser(rows[0]));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to register.' });
+    }
+});
+
+// LOGIN (email + password)
+app.post('/api/auth/login', async (req, res) => {
+    const { email, password, role } = req.body;
+
+    if (!email || !password || !role) {
+        return res.status(400).json({
+            message: 'Email, password and role are required.'
+        });
+    }
+
+    try {
+        const [rows] = await db.query(
+            'SELECT * FROM users WHERE role = ? AND email = ?',
+            [role, String(email).trim().toLowerCase()]
+        );
+
+        const ok =
+            rows.length > 0 &&
+            (await bcrypt.compare(String(password), rows[0].password_hash));
+
+        if (!ok) {
+            return res.status(401).json({
+                message: 'Invalid email or password.'
+            });
+        }
+
+        res.json(toUser(rows[0]));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to log in.' });
+    }
+});
+
+// LIST STUDENTS (for the admin's Manage Students page)
+app.get('/api/students', async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            "SELECT * FROM users WHERE role = 'student' ORDER BY id DESC"
+        );
+        res.json(rows.map(toUser));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch students.' });
     }
 });
 
