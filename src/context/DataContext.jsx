@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -8,29 +9,18 @@ const DataContext = createContext(null);
 const API_URL = 'https://library-book-system.onrender.com/api/books';
 const LOGIN_URL = 'https://library-book-system.onrender.com/api/login';
 
-// Tells the Express server who just logged in so it prints it in the
-// terminal. Best-effort: if the server isn't running, login still works.
-function reportLogin(sess) {
-  fetch(LOGIN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: sess.name,
-      email: sess.email,
-      role: sess.role,
-      provider: sess.provider || 'email',
-    }),
-  }).catch((err) => console.error('Could not report login to backend server:', err));
-}
-
-const backendOffline = (err) =>
-  console.error('Could not sync to backend server (is node server.js running?):', err);
-
 const KEYS = {
   students: 'lbs_students',
   admins: 'lbs_admins',
   requests: 'lbs_requests',
   session: 'lbs_session',
+};
+
+const DEFAULT_ADMIN = {
+  id: 'adm-default',
+  name: 'Library Admin',
+  email: 'admin@library.com',
+  password: 'admin123',
 };
 
 function load(key, fallback) {
@@ -43,66 +33,104 @@ function load(key, fallback) {
 }
 
 function save(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.error('Local storage error:', err);
+  }
 }
 
 function genId(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
-const DEFAULT_ADMIN = {
-  id: 'adm-default',
-  name: 'Library Admin',
-  email: 'admin@library.com',
-  password: 'admin123',
-};
+function backendOffline(err) {
+  console.error('Backend sync error:', err);
+}
+
+function reportLogin(sess) {
+  fetch(LOGIN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: sess.name,
+      email: sess.email,
+      role: sess.role,
+      provider: sess.provider || 'email',
+    }),
+  }).catch(backendOffline);
+}
 
 export function DataProvider({ children }) {
   const [students, setStudents] = useState(() => load(KEYS.students, []));
+
   const [admins, setAdmins] = useState(() => {
     const stored = load(KEYS.admins, [DEFAULT_ADMIN]);
-    // Make sure the default admin always exists, even if this browser
-    // already had an (older, admin-less) copy of the data saved.
-    const hasDefault = stored.some((a) => a.email.toLowerCase() === DEFAULT_ADMIN.email);
+
+    const hasDefault = stored.some(
+      (a) => a.email?.toLowerCase() === DEFAULT_ADMIN.email.toLowerCase()
+    );
+
     return hasDefault ? stored : [DEFAULT_ADMIN, ...stored];
   });
-  // Books now come from the Express/MySQL backend, not localStorage or seed data.
+
   const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState(() => load(KEYS.requests, []));
   const [session, setSession] = useState(() => load(KEYS.session, null));
-  // True until we've checked whether a Google/Firebase session is already
-  // active (e.g. after a page refresh). Gates the initial render in App.jsx
-  // so we don't flash the Login page before restoring that session.
+
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState('');
 
+  // Save local data
   useEffect(() => save(KEYS.students, students), [students]);
   useEffect(() => save(KEYS.admins, admins), [admins]);
   useEffect(() => save(KEYS.requests, requests), [requests]);
+
   useEffect(() => {
     if (session) save(KEYS.session, session);
     else localStorage.removeItem(KEYS.session);
   }, [session]);
 
-  // Load the books from the Express/MySQL backend (same source as Manage Books).
+  // Load books from online Express API
+  async function syncSeedBooks() {
+    try {
+      const res = await fetch(API_URL);
+
+      if (!res.ok) {
+        throw new Error(`Books API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid books response from backend.');
+      }
+
+      setBooks(
+        data.map((book) => ({
+          ...book,
+          totalCopies: Number(book.totalCopies ?? 0),
+          availableCopies: Number(
+            book.availableCopies ?? book.totalCopies ?? 0
+          ),
+        }))
+      );
+
+      return data;
+    } catch (err) {
+      backendOffline(err);
+      return [];
+    }
+  }
+
   useEffect(() => {
-    fetch(API_URL)
-      .then((res) => res.json())
-      .then((data) =>
-        setBooks(data.map((b) => ({ ...b, availableCopies: b.totalCopies })))
-      )
-      .catch(backendOffline);
+    syncSeedBooks();
   }, []);
 
-  // Watch Firebase Auth for Google sign-ins/sign-outs and keep `session` in
-  // sync with each user's role, which now lives in Firestore (users/{uid})
-  // instead of being picked from a UI toggle. New Google users default to
-  // 'student'; to make someone an admin, set role: 'admin' on their
-  // users/{uid} document in the Firestore console.
+  // Firebase / Google Authentication Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
-        // No Firebase user — leave any local (email/password) session as-is.
         setAuthChecking(false);
         return;
       }
@@ -112,10 +140,12 @@ export function DataProvider({ children }) {
         const userSnap = await getDoc(userRef);
 
         let role;
+
         if (userSnap.exists()) {
           role = userSnap.data().role || 'student';
         } else {
           role = 'student';
+
           await setDoc(userRef, {
             displayName: currentUser.displayName,
             email: currentUser.email,
@@ -132,18 +162,23 @@ export function DataProvider({ children }) {
           email: currentUser.email,
           provider: 'google',
         };
-        // Only report a fresh sign-in, not a session restored on page refresh.
+
         const previous = load(KEYS.session, null);
-        if (!previous || previous.id !== sess.id) reportLogin(sess);
+
+        if (!previous || previous.id !== sess.id) {
+          reportLogin(sess);
+        }
 
         setSession(sess);
         setAuthError('');
 
-        // Keep the student roster (used by Manage Students / borrow requests)
-        // in sync so a Google-signed-in student shows up there too.
         if (role === 'student') {
           setStudents((prev) =>
-            prev.some((s) => s.email.toLowerCase() === currentUser.email.toLowerCase())
+            prev.some(
+              (s) =>
+                s.email &&
+                s.email.toLowerCase() === currentUser.email?.toLowerCase()
+            )
               ? prev
               : [
                   ...prev,
@@ -159,10 +194,10 @@ export function DataProvider({ children }) {
           );
         }
       } catch (err) {
-        // Most commonly a Firestore rules issue (e.g. permission-denied).
-        // Surface it instead of failing silently, so Login.jsx can show it.
         console.error('Failed to load/create Firestore user profile:', err);
-        setAuthError(err.message || 'Failed to load your account. Please try again.');
+        setAuthError(
+          err.message || 'Failed to load your account. Please try again.'
+        );
       }
 
       setAuthChecking(false);
@@ -171,106 +206,168 @@ export function DataProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  // ---------- Auth ----------
+  // AUTH FUNCTIONS
+
   function registerStudent({ name, studentId, email, password }) {
-    if (students.some((s) => s.email.toLowerCase() === email.toLowerCase())) {
+    if (
+      students.some(
+        (s) => s.email?.toLowerCase() === email.toLowerCase()
+      )
+    ) {
       throw new Error('Email is already registered.');
     }
-    const newStudent = { id: genId('stu'), name, studentId, email, password };
+
+    const newStudent = {
+      id: genId('stu'),
+      name,
+      studentId,
+      email,
+      password,
+      provider: 'email',
+    };
+
     setStudents((prev) => [...prev, newStudent]);
     return newStudent;
   }
 
   function registerAdmin({ name, email, password }) {
-    // Admin accounts are provisioned by the system, not self-registered.
-    // Kept here only in case a future authorized admin-management screen needs it.
-    if (admins.some((a) => a.email.toLowerCase() === email.toLowerCase())) {
+    if (
+      admins.some(
+        (a) => a.email?.toLowerCase() === email.toLowerCase()
+      )
+    ) {
       throw new Error('Email is already registered.');
     }
-    const newAdmin = { id: genId('adm'), name, email, password };
+
+    const newAdmin = {
+      id: genId('adm'),
+      name,
+      email,
+      password,
+    };
+
     setAdmins((prev) => [...prev, newAdmin]);
     return newAdmin;
   }
 
   function login({ email, password, role }) {
     const list = role === 'admin' ? admins : students;
+
     const user = list.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+      (u) =>
+        u.email?.toLowerCase() === email.toLowerCase() &&
+        u.password === password
     );
-    if (!user) throw new Error('Invalid email or password.');
-    const sess = { role, id: user.id, name: user.name, email: user.email };
+
+    if (!user) {
+      throw new Error('Invalid email or password.');
+    }
+
+    const sess = {
+      role,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      provider: user.provider || 'email',
+    };
+
     setSession(sess);
     reportLogin(sess);
     return sess;
   }
 
   async function logout() {
-    // Sign out of Firebase too, in case this was a Google session — safe
-    // to call even for local email/password sessions (no-op if no Firebase
-    // user is signed in).
     try {
       await signOut(auth);
-    } catch {
-      // ignore — falls through to clearing local session regardless
+    } catch (err) {
+      console.warn('Firebase sign-out:', err);
     }
+
     setSession(null);
   }
 
-  // Google Sign-In (Firebase Auth) — just opens the popup. Role/session are
-  // then set automatically by the onAuthStateChanged listener above, which
-  // reads (or creates) the user's role from Firestore.
+  // BOOK FUNCTIONS
 
-  // ---------- Books ----------
   function addBook(book) {
     const newBook = {
-      id: genId('bk'),
-      availableCopies: Number(book.totalCopies),
       ...book,
-      totalCopies: Number(book.totalCopies),
+      id: book.id || genId('bk'),
+      totalCopies: Number(book.totalCopies || 1),
+      availableCopies: Number(book.totalCopies || 1),
     };
+
     setBooks((prev) => [...prev, newBook]);
 
-    // Mirror the new book to the Express server (port 8080). Best-effort:
-    // if the server isn't running, the book is still added to the app above.
-    fetch(`${API_URL}`, {
+    fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newBook),
-    }).catch(backendOffline);
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Add book failed: ${res.status}`);
+        return res.json().catch(() => null);
+      })
+      .then(() => syncSeedBooks())
+      .catch(backendOffline);
+
+    return newBook;
   }
 
   function updateBook(id, updates) {
     setBooks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, ...updates } : b))
+      prev.map((b) => (String(b.id) === String(id) ? { ...b, ...updates } : b))
     );
 
-    // Only real edits from Manage Books (which include title/author) are
-    // mirrored. Borrow/return stock changes only touch availableCopies,
-    // which the server doesn't store.
-    if (updates.title !== undefined) {
-      fetch(`${API_URL}/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      }).catch(backendOffline);
-    }
+    fetch(`${API_URL}/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Update book failed: ${res.status}`);
+        return syncSeedBooks();
+      })
+      .catch(backendOffline);
   }
 
   function deleteBook(id) {
-    setBooks((prev) => prev.filter((b) => b.id !== id));
-    fetch(`${API_URL}/${id}`, { method: 'DELETE' }).catch(backendOffline);
+    setBooks((prev) => prev.filter((b) => String(b.id) !== String(id)));
+
+    fetch(`${API_URL}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Delete book failed: ${res.status}`);
+        return syncSeedBooks();
+      })
+      .catch(backendOffline);
   }
 
-  // ---------- Borrow Requests ----------
+  // BORROW REQUEST FUNCTIONS
+
   function createBorrowRequest({ bookId }) {
-    if (!session || session.role !== 'student') throw new Error('Log in as a student first.');
-    const book = books.find((b) => b.id === bookId);
-    if (!book || book.availableCopies < 1) throw new Error('This book is not available right now.');
+    if (!session || session.role !== 'student') {
+      throw new Error('Log in as a student first.');
+    }
+
+    const book = books.find((b) => String(b.id) === String(bookId));
+
+    if (!book || Number(book.availableCopies) < 1) {
+      throw new Error('This book is not available right now.');
+    }
 
     const alreadyPending = requests.some(
-      (r) => r.studentId === session.id && r.bookId === bookId && (r.status === 'Pending' || r.status === 'Approved')
+      (r) =>
+        String(r.studentId) === String(session.id) &&
+        String(r.bookId) === String(bookId) &&
+        (r.status === 'Pending' || r.status === 'Approved')
     );
-    if (alreadyPending) throw new Error('You already have a request or an active borrow for this book.');
+
+    if (alreadyPending) {
+      throw new Error(
+        'You already have a request or an active borrow for this book.'
+      );
+    }
 
     const newRequest = {
       id: genId('req'),
@@ -283,49 +380,99 @@ export function DataProvider({ children }) {
       dueDate: null,
       returnDate: null,
     };
-    setRequests((prev) => [newRequest, ...prev]);
+
+    setRequests((prev) => [...prev, newRequest]);
+    return newRequest;
   }
 
   function approveRequest(requestId) {
-    const req = requests.find((r) => r.id === requestId);
-    if (!req) return;
-    const book = books.find((b) => b.id === req.bookId);
-    if (!book || book.availableCopies < 1) throw new Error('No available copies left.');
+    const request = requests.find((r) => r.id === requestId);
 
-    updateBook(book.id, { availableCopies: book.availableCopies - 1 });
+    if (!request) throw new Error('Borrow request not found.');
+    if (request.status !== 'Pending') {
+      throw new Error('This request is no longer pending.');
+    }
 
-    const due = new Date();
-    due.setDate(due.getDate() + 7);
+    const book = books.find((b) => String(b.id) === String(request.bookId));
+
+    if (!book || Number(book.availableCopies) < 1) {
+      throw new Error('No available copies for this book.');
+    }
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 7);
 
     setRequests((prev) =>
       prev.map((r) =>
-        r.id === requestId ? { ...r, status: 'Approved', dueDate: due.toISOString() } : r
+        r.id === requestId
+          ? {
+              ...r,
+              status: 'Approved',
+              dueDate: dueDate.toISOString(),
+            }
+          : r
       )
     );
+
+    setBooks((prev) =>
+      prev.map((b) =>
+        String(b.id) === String(request.bookId)
+          ? { ...b, availableCopies: Math.max(0, Number(b.availableCopies) - 1) }
+          : b
+      )
+    );
+
+    return request;
   }
 
   function rejectRequest(requestId) {
+    const request = requests.find((r) => r.id === requestId);
+
+    if (!request) throw new Error('Borrow request not found.');
+
     setRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'Rejected' } : r))
+      prev.map((r) =>
+        r.id === requestId
+          ? { ...r, status: 'Rejected' }
+          : r
+      )
     );
+
+    return request;
   }
 
   function markReturned(requestId) {
-    const req = requests.find((r) => r.id === requestId);
-    if (!req) return;
-    const book = books.find((b) => b.id === req.bookId);
-    if (book) {
-      updateBook(book.id, {
-        availableCopies: Math.min(book.totalCopies, book.availableCopies + 1),
-      });
+    const request = requests.find((r) => r.id === requestId);
+
+    if (!request) throw new Error('Borrow record not found.');
+    if (request.status !== 'Approved') {
+      throw new Error('This book is not currently borrowed.');
     }
+
     setRequests((prev) =>
       prev.map((r) =>
-        r.id === requestId ? { ...r, status: 'Returned', returnDate: new Date().toISOString() } : r
+        r.id === requestId
+          ? {
+              ...r,
+              status: 'Returned',
+              returnDate: new Date().toISOString(),
+            }
+          : r
       )
     );
+
+    setBooks((prev) =>
+      prev.map((b) =>
+        String(b.id) === String(request.bookId)
+          ? { ...b, availableCopies: Number(b.availableCopies) + 1 }
+          : b
+      )
+    );
+
+    return request;
   }
 
+  // CONTEXT VALUES
   const value = {
     students,
     admins,
@@ -334,24 +481,36 @@ export function DataProvider({ children }) {
     session,
     authChecking,
     authError,
+
     registerStudent,
     registerAdmin,
     login,
     logout,
+
     addBook,
     updateBook,
     deleteBook,
+    syncSeedBooks,
+
     createBorrowRequest,
     approveRequest,
     rejectRequest,
     markReturned,
   };
 
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+  return (
+    <DataContext.Provider value={value}>
+      {children}
+    </DataContext.Provider>
+  );
 }
 
 export function useData() {
-  const ctx = useContext(DataContext);
-  if (!ctx) throw new Error('useData must be used within a DataProvider');
-  return ctx;
+  const context = useContext(DataContext);
+
+  if (!context) {
+    throw new Error('useData must be used inside a DataProvider');
+  }
+
+  return context;
 }
