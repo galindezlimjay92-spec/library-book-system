@@ -10,6 +10,7 @@ export default function BorrowRequests() {
   const { requests, approveRequest, rejectRequest, markReturned } = useData();
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('Pending');
+  const [busyId, setBusyId] = useState(null);
 
   const countOf = (f) =>
     f === 'All' ? requests.length : requests.filter((r) => r.status === f).length;
@@ -20,12 +21,16 @@ export default function BorrowRequests() {
     .filter((r) => filter === 'All' || r.status === filter)
     .sort((a, b) => new Date(b.requestDate) - new Date(a.requestDate));
 
-  function handleApprove(id) {
+  // Runs approve / reject / return, waits for the server, shows any error
+  async function run(id, action) {
     setError('');
+    setBusyId(id);
     try {
-      approveRequest(id);
+      await action(id);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -86,13 +91,15 @@ export default function BorrowRequests() {
                       <>
                         <button
                           className="btn btn-sm btn-success me-2"
-                          onClick={() => handleApprove(r.id)}
+                          disabled={busyId === r.id}
+                          onClick={() => run(r.id, approveRequest)}
                         >
                           <i className="bi bi-check-lg me-1"></i>Approve
                         </button>
                         <button
                           className="btn btn-sm btn-outline-danger"
-                          onClick={() => rejectRequest(r.id)}
+                          disabled={busyId === r.id}
+                          onClick={() => run(r.id, rejectRequest)}
                         >
                           <i className="bi bi-x-lg me-1"></i>Reject
                         </button>
@@ -101,7 +108,8 @@ export default function BorrowRequests() {
                     {r.status === 'Approved' && (
                       <button
                         className="btn btn-sm btn-outline-secondary"
-                        onClick={() => markReturned(r.id)}
+                        disabled={busyId === r.id}
+                        onClick={() => run(r.id, markReturned)}
                       >
                         <i className="bi bi-box-arrow-in-down me-1"></i>Mark as Returned
                       </button>

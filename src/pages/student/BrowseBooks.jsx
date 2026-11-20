@@ -35,10 +35,10 @@ export default function BrowseBooks() {
     return matchesSearch && matchesCategory && matchesAvailability;
   });
 
-  function handleRequest(bookId) {
+  async function handleRequest(bookId) {
     setMessage(null);
     try {
-      createBorrowRequest({ bookId });
+      await createBorrowRequest({ bookId });
       setMessage({ type: 'success', text: 'Borrow request submitted! Check "My Requests" for status.' });
     } catch (err) {
       setMessage({ type: 'danger', text: err.message });

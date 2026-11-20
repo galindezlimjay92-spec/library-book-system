@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -8,11 +7,11 @@ const DataContext = createContext(null);
 
 const API_URL = 'https://library-book-system.onrender.com/api/books';
 const LOGIN_URL = 'https://library-book-system.onrender.com/api/login';
+const REQUESTS_URL = 'https://library-book-system.onrender.com/api/requests';
 
 const KEYS = {
   students: 'lbs_students',
   admins: 'lbs_admins',
-  requests: 'lbs_requests',
   session: 'lbs_session',
 };
 
@@ -48,6 +47,25 @@ function backendOffline(err) {
   console.error('Backend sync error:', err);
 }
 
+// Calls the backend and throws an Error with the server's message if it fails
+async function requestApi(url, options) {
+  let res;
+
+  try {
+    res = await fetch(url, options);
+  } catch {
+    throw new Error('Cannot reach the server. Please try again in a moment.');
+  }
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.message || `Request failed (${res.status})`);
+  }
+
+  return data;
+}
+
 function reportLogin(sess) {
   fetch(LOGIN_URL, {
     method: 'POST',
@@ -75,16 +93,15 @@ export function DataProvider({ children }) {
   });
 
   const [books, setBooks] = useState([]);
-  const [requests, setRequests] = useState(() => load(KEYS.requests, []));
+  const [requests, setRequests] = useState([]);
   const [session, setSession] = useState(() => load(KEYS.session, null));
 
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState('');
 
-  // Save local data
+  // Save local data (accounts and session only)
   useEffect(() => save(KEYS.students, students), [students]);
   useEffect(() => save(KEYS.admins, admins), [admins]);
-  useEffect(() => save(KEYS.requests, requests), [requests]);
 
   useEffect(() => {
     if (session) save(KEYS.session, session);
@@ -123,8 +140,45 @@ export function DataProvider({ children }) {
     }
   }
 
+  // Load borrow requests from online Express API
+  async function syncRequests() {
+    try {
+      const res = await fetch(REQUESTS_URL);
+
+      if (!res.ok) {
+        throw new Error(`Requests API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid requests response from backend.');
+      }
+
+      setRequests(data);
+      return data;
+    } catch (err) {
+      backendOffline(err);
+      return [];
+    }
+  }
+
   useEffect(() => {
     syncSeedBooks();
+  }, []);
+
+  // Load requests now, then refresh every 15 seconds so other devices stay in sync
+  useEffect(() => {
+    syncRequests();
+
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncRequests();
+        syncSeedBooks();
+      }
+    }, 15000);
+
+    return () => clearInterval(timer);
   }, []);
 
   // Firebase / Google Authentication Listener
@@ -343,133 +397,55 @@ export function DataProvider({ children }) {
       .catch(backendOffline);
   }
 
-  // BORROW REQUEST FUNCTIONS
+  // BORROW REQUEST FUNCTIONS (all saved in the online database)
 
-  function createBorrowRequest({ bookId }) {
+  async function createBorrowRequest({ bookId }) {
     if (!session || session.role !== 'student') {
       throw new Error('Log in as a student first.');
     }
 
-    const book = books.find((b) => String(b.id) === String(bookId));
+    const newRequest = await requestApi(REQUESTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: session.id,
+        studentName: session.name,
+        bookId,
+      }),
+    });
 
-    if (!book || Number(book.availableCopies) < 1) {
-      throw new Error('This book is not available right now.');
-    }
-
-    const alreadyPending = requests.some(
-      (r) =>
-        String(r.studentId) === String(session.id) &&
-        String(r.bookId) === String(bookId) &&
-        (r.status === 'Pending' || r.status === 'Approved')
-    );
-
-    if (alreadyPending) {
-      throw new Error(
-        'You already have a request or an active borrow for this book.'
-      );
-    }
-
-    const newRequest = {
-      id: genId('req'),
-      studentId: session.id,
-      studentName: session.name,
-      bookId: book.id,
-      bookTitle: book.title,
-      requestDate: new Date().toISOString(),
-      status: 'Pending',
-      dueDate: null,
-      returnDate: null,
-    };
-
-    setRequests((prev) => [...prev, newRequest]);
+    await syncRequests();
     return newRequest;
   }
 
-  function approveRequest(requestId) {
-    const request = requests.find((r) => r.id === requestId);
-
-    if (!request) throw new Error('Borrow request not found.');
-    if (request.status !== 'Pending') {
-      throw new Error('This request is no longer pending.');
-    }
-
-    const book = books.find((b) => String(b.id) === String(request.bookId));
-
-    if (!book || Number(book.availableCopies) < 1) {
-      throw new Error('No available copies for this book.');
-    }
-
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 7);
-
-    setRequests((prev) =>
-      prev.map((r) =>
-        r.id === requestId
-          ? {
-              ...r,
-              status: 'Approved',
-              dueDate: dueDate.toISOString(),
-            }
-          : r
-      )
+  async function approveRequest(requestId) {
+    const updated = await requestApi(
+      `${REQUESTS_URL}/${encodeURIComponent(requestId)}/approve`,
+      { method: 'PUT' }
     );
 
-    setBooks((prev) =>
-      prev.map((b) =>
-        String(b.id) === String(request.bookId)
-          ? { ...b, availableCopies: Math.max(0, Number(b.availableCopies) - 1) }
-          : b
-      )
-    );
-
-    return request;
+    await Promise.all([syncRequests(), syncSeedBooks()]);
+    return updated;
   }
 
-  function rejectRequest(requestId) {
-    const request = requests.find((r) => r.id === requestId);
-
-    if (!request) throw new Error('Borrow request not found.');
-
-    setRequests((prev) =>
-      prev.map((r) =>
-        r.id === requestId
-          ? { ...r, status: 'Rejected' }
-          : r
-      )
+  async function rejectRequest(requestId) {
+    const updated = await requestApi(
+      `${REQUESTS_URL}/${encodeURIComponent(requestId)}/reject`,
+      { method: 'PUT' }
     );
 
-    return request;
+    await syncRequests();
+    return updated;
   }
 
-  function markReturned(requestId) {
-    const request = requests.find((r) => r.id === requestId);
-
-    if (!request) throw new Error('Borrow record not found.');
-    if (request.status !== 'Approved') {
-      throw new Error('This book is not currently borrowed.');
-    }
-
-    setRequests((prev) =>
-      prev.map((r) =>
-        r.id === requestId
-          ? {
-              ...r,
-              status: 'Returned',
-              returnDate: new Date().toISOString(),
-            }
-          : r
-      )
+  async function markReturned(requestId) {
+    const updated = await requestApi(
+      `${REQUESTS_URL}/${encodeURIComponent(requestId)}/return`,
+      { method: 'PUT' }
     );
 
-    setBooks((prev) =>
-      prev.map((b) =>
-        String(b.id) === String(request.bookId)
-          ? { ...b, availableCopies: Number(b.availableCopies) + 1 }
-          : b
-      )
-    );
-
-    return request;
+    await Promise.all([syncRequests(), syncSeedBooks()]);
+    return updated;
   }
 
   // CONTEXT VALUES
@@ -491,6 +467,7 @@ export function DataProvider({ children }) {
     updateBook,
     deleteBook,
     syncSeedBooks,
+    syncRequests,
 
     createBorrowRequest,
     approveRequest,
