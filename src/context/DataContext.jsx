@@ -9,16 +9,17 @@ const BASE_URL = 'https://library-book-system.onrender.com/api';
 const API_URL = `${BASE_URL}/books`;
 const LOGIN_URL = `${BASE_URL}/login`;
 const REQUESTS_URL = `${BASE_URL}/requests`;
-const REGISTER_URL = `${BASE_URL}/register`;
-const AUTH_LOGIN_URL = `${BASE_URL}/auth/login`;
 const STUDENTS_URL = `${BASE_URL}/students`;
 
 const KEYS = {
   session: 'lbs_session',
 };
 
-// Old browser-only data (including plain-text passwords) that is no longer used
+// Old browser-only data from earlier versions (accounts with plain-text passwords)
 const OLD_KEYS = ['lbs_students', 'lbs_admins', 'lbs_requests'];
+
+// Admin accounts now live in Firestore (kept so older pages don't break)
+const NO_ADMINS = [];
 
 function load(key, fallback) {
   try {
@@ -45,12 +46,36 @@ function backendOffline(err) {
   console.error('Backend sync error:', err);
 }
 
+// Waits until Firebase knows who is logged in
+function getCurrentUser() {
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+
+  return new Promise((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      unsubscribe();
+      resolve(user);
+    });
+  });
+}
+
+// Adds the Firebase ID token so the backend can verify who is calling
+async function authHeader() {
+  const user = await getCurrentUser();
+
+  if (!user) return {};
+
+  const token = await user.getIdToken();
+  return { Authorization: `Bearer ${token}` };
+}
+
 // Calls the backend and throws an Error with the server's message if it fails
-async function requestApi(url, options) {
+async function requestApi(url, options = {}) {
+  const headers = { ...(options.headers || {}), ...(await authHeader()) };
+
   let res;
 
   try {
-    res = await fetch(url, options);
+    res = await fetch(url, { ...options, headers });
   } catch {
     throw new Error('Cannot reach the server. Please try again in a moment.');
   }
@@ -72,7 +97,7 @@ function reportLogin(sess) {
       name: sess.name,
       email: sess.email,
       role: sess.role,
-      provider: sess.provider || 'email',
+      provider: sess.provider || 'google',
     }),
   }).catch(backendOffline);
 }
@@ -81,13 +106,15 @@ export function DataProvider({ children }) {
   const [students, setStudents] = useState([]);
   const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState([]);
-  const [session, setSession] = useState(() => load(KEYS.session, null));
+
+  // Only Google sessions are valid now (older email sessions are dropped)
+  const [session, setSession] = useState(() => {
+    const saved = load(KEYS.session, null);
+    return saved && saved.provider === 'google' ? saved : null;
+  });
 
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState('');
-
-  // Admin accounts now live in the database (kept so older pages don't break)
-  const admins = [];
 
   const isAdmin = session?.role === 'admin';
 
@@ -105,7 +132,7 @@ export function DataProvider({ children }) {
     else localStorage.removeItem(KEYS.session);
   }, [session]);
 
-  // Load books from online Express API
+  // Books are public, so no token is needed
   async function syncSeedBooks() {
     try {
       const res = await fetch(API_URL);
@@ -137,16 +164,10 @@ export function DataProvider({ children }) {
     }
   }
 
-  // Load borrow requests from online Express API
+  // Requests need a logged-in user (admin gets all, student gets their own)
   async function syncRequests() {
     try {
-      const res = await fetch(REQUESTS_URL);
-
-      if (!res.ok) {
-        throw new Error(`Requests API error: ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = await requestApi(REQUESTS_URL);
 
       if (!Array.isArray(data)) {
         throw new Error('Invalid requests response from backend.');
@@ -160,16 +181,10 @@ export function DataProvider({ children }) {
     }
   }
 
-  // Load registered students from online Express API (for the admin)
+  // Student list is for admins only
   async function syncStudents() {
     try {
-      const res = await fetch(STUDENTS_URL);
-
-      if (!res.ok) {
-        throw new Error(`Students API error: ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = await requestApi(STUDENTS_URL);
 
       if (!Array.isArray(data)) {
         throw new Error('Invalid students response from backend.');
@@ -187,8 +202,13 @@ export function DataProvider({ children }) {
     syncSeedBooks();
   }, []);
 
-  // Load requests now, then refresh every 15 seconds so other devices stay in sync
+  // When someone is logged in, load their requests and refresh every 15 seconds
   useEffect(() => {
+    if (!session) {
+      setRequests([]);
+      return;
+    }
+
     syncRequests();
 
     const timer = setInterval(() => {
@@ -199,11 +219,14 @@ export function DataProvider({ children }) {
     }, 15000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [session?.id]);
 
-  // Admins also load the student list, and keep it fresh
+  // Admins also load the student list
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      setStudents([]);
+      return;
+    }
 
     syncStudents();
 
@@ -214,12 +237,13 @@ export function DataProvider({ children }) {
     }, 15000);
 
     return () => clearInterval(timer);
-  }, [isAdmin]);
+  }, [isAdmin, session?.id]);
 
   // Firebase / Google Authentication Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
+        setSession(null);
         setAuthChecking(false);
         return;
       }
@@ -273,59 +297,6 @@ export function DataProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  // AUTH FUNCTIONS (accounts are saved in the online database)
-
-  async function registerStudent({ name, studentId, email, password }) {
-    const user = await requestApi(REGISTER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'student',
-        name,
-        studentId,
-        email,
-        password,
-      }),
-    });
-
-    return user;
-  }
-
-  async function registerAdmin({ name, email, password }) {
-    const user = await requestApi(REGISTER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'admin',
-        name,
-        email,
-        password,
-      }),
-    });
-
-    return user;
-  }
-
-  async function login({ email, password, role }) {
-    const user = await requestApi(AUTH_LOGIN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, role }),
-    });
-
-    const sess = {
-      role: user.role,
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      provider: 'email',
-    };
-
-    setSession(sess);
-    reportLogin(sess);
-    return sess;
-  }
-
   async function logout() {
     try {
       await signOut(auth);
@@ -336,7 +307,7 @@ export function DataProvider({ children }) {
     setSession(null);
   }
 
-  // BOOK FUNCTIONS
+  // BOOK FUNCTIONS (adding, editing and deleting are admin-only on the server)
 
   function addBook(book) {
     const newBook = {
@@ -348,17 +319,16 @@ export function DataProvider({ children }) {
 
     setBooks((prev) => [...prev, newBook]);
 
-    fetch(API_URL, {
+    requestApi(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newBook),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Add book failed: ${res.status}`);
-        return res.json().catch(() => null);
-      })
       .then(() => syncSeedBooks())
-      .catch(backendOffline);
+      .catch((err) => {
+        backendOffline(err);
+        syncSeedBooks();
+      });
 
     return newBook;
   }
@@ -368,29 +338,29 @@ export function DataProvider({ children }) {
       prev.map((b) => (String(b.id) === String(id) ? { ...b, ...updates } : b))
     );
 
-    fetch(`${API_URL}/${encodeURIComponent(id)}`, {
+    requestApi(`${API_URL}/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Update book failed: ${res.status}`);
-        return syncSeedBooks();
-      })
-      .catch(backendOffline);
+      .then(() => syncSeedBooks())
+      .catch((err) => {
+        backendOffline(err);
+        syncSeedBooks();
+      });
   }
 
   function deleteBook(id) {
     setBooks((prev) => prev.filter((b) => String(b.id) !== String(id)));
 
-    fetch(`${API_URL}/${encodeURIComponent(id)}`, {
+    requestApi(`${API_URL}/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Delete book failed: ${res.status}`);
-        return syncSeedBooks();
-      })
-      .catch(backendOffline);
+      .then(() => syncSeedBooks())
+      .catch((err) => {
+        backendOffline(err);
+        syncSeedBooks();
+      });
   }
 
   // BORROW REQUEST FUNCTIONS (all saved in the online database)
@@ -403,11 +373,7 @@ export function DataProvider({ children }) {
     const newRequest = await requestApi(REQUESTS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        studentId: session.id,
-        studentName: session.name,
-        bookId,
-      }),
+      body: JSON.stringify({ bookId }),
     });
 
     await syncRequests();
@@ -447,16 +413,13 @@ export function DataProvider({ children }) {
   // CONTEXT VALUES
   const value = {
     students,
-    admins,
+    admins: NO_ADMINS,
     books,
     requests,
     session,
     authChecking,
     authError,
 
-    registerStudent,
-    registerAdmin,
-    login,
     logout,
 
     addBook,
