@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
@@ -201,6 +200,210 @@ app.post('/api/login', (req, res) => {
     res.json({
         message: 'Login recorded.'
     });
+});
+
+// ===== BORROW REQUESTS =====
+
+function toRequest(row) {
+    return {
+        id: row.id,
+        studentId: row.student_id,
+        studentName: row.student_name,
+        bookId: row.book_id,
+        bookTitle: row.book_title,
+        requestDate: row.request_date,
+        status: row.status,
+        dueDate: row.due_date,
+        returnDate: row.return_date
+    };
+}
+
+async function getRequestById(id) {
+    const [rows] = await db.query(
+        'SELECT * FROM borrow_requests WHERE id = ?',
+        [id]
+    );
+    return rows[0];
+}
+
+// GET ALL REQUESTS
+app.get('/api/requests', async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT * FROM borrow_requests ORDER BY id DESC'
+        );
+        res.json(rows.map(toRequest));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to fetch requests.' });
+    }
+});
+
+// CREATE REQUEST (student)
+app.post('/api/requests', async (req, res) => {
+    const { studentId, studentName, bookId } = req.body;
+
+    if (!studentId || !bookId) {
+        return res.status(400).json({
+            message: 'studentId and bookId are required.'
+        });
+    }
+
+    try {
+        const [books] = await db.query(
+            'SELECT * FROM books WHERE book_id = ?',
+            [bookId]
+        );
+
+        if (books.length === 0 || books[0].copies_available < 1) {
+            return res.status(400).json({
+                message: 'This book is not available right now.'
+            });
+        }
+
+        const [dupes] = await db.query(
+            `SELECT id FROM borrow_requests
+             WHERE student_id = ? AND book_id = ?
+             AND status IN ('Pending', 'Approved')`,
+            [String(studentId), bookId]
+        );
+
+        if (dupes.length > 0) {
+            return res.status(400).json({
+                message: 'You already have a request or an active borrow for this book.'
+            });
+        }
+
+        const [result] = await db.query(
+            `INSERT INTO borrow_requests
+             (student_id, student_name, book_id, book_title)
+             VALUES (?, ?, ?, ?)`,
+            [String(studentId), studentName || '', bookId, books[0].title]
+        );
+
+        res.status(201).json(toRequest(await getRequestById(result.insertId)));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to create request.' });
+    }
+});
+
+// APPROVE REQUEST (admin)
+app.put('/api/requests/:id/approve', async (req, res) => {
+    const conn = await db.getConnection();
+
+    try {
+        await conn.beginTransaction();
+
+        const [found] = await conn.query(
+            'SELECT * FROM borrow_requests WHERE id = ? FOR UPDATE',
+            [req.params.id]
+        );
+
+        if (found.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ message: 'Borrow request not found.' });
+        }
+
+        if (found[0].status !== 'Pending') {
+            await conn.rollback();
+            return res.status(400).json({ message: 'This request is no longer pending.' });
+        }
+
+        const [dec] = await conn.query(
+            `UPDATE books SET copies_available = copies_available - 1
+             WHERE book_id = ? AND copies_available > 0`,
+            [found[0].book_id]
+        );
+
+        if (dec.affectedRows === 0) {
+            await conn.rollback();
+            return res.status(400).json({ message: 'No available copies for this book.' });
+        }
+
+        await conn.query(
+            `UPDATE borrow_requests
+             SET status = 'Approved', due_date = DATE_ADD(NOW(), INTERVAL 7 DAY)
+             WHERE id = ?`,
+            [req.params.id]
+        );
+
+        await conn.commit();
+        res.json(toRequest(await getRequestById(req.params.id)));
+    } catch (err) {
+        await conn.rollback();
+        console.error(err);
+        res.status(500).json({ message: 'Failed to approve request.' });
+    } finally {
+        conn.release();
+    }
+});
+
+// REJECT REQUEST (admin)
+app.put('/api/requests/:id/reject', async (req, res) => {
+    try {
+        const [result] = await db.query(
+            `UPDATE borrow_requests SET status = 'Rejected'
+             WHERE id = ? AND status = 'Pending'`,
+            [req.params.id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(400).json({
+                message: 'Request not found or no longer pending.'
+            });
+        }
+
+        res.json(toRequest(await getRequestById(req.params.id)));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Failed to reject request.' });
+    }
+});
+
+// MARK RETURNED (admin)
+app.put('/api/requests/:id/return', async (req, res) => {
+    const conn = await db.getConnection();
+
+    try {
+        await conn.beginTransaction();
+
+        const [found] = await conn.query(
+            'SELECT * FROM borrow_requests WHERE id = ? FOR UPDATE',
+            [req.params.id]
+        );
+
+        if (found.length === 0) {
+            await conn.rollback();
+            return res.status(404).json({ message: 'Borrow record not found.' });
+        }
+
+        if (found[0].status !== 'Approved') {
+            await conn.rollback();
+            return res.status(400).json({ message: 'This book is not currently borrowed.' });
+        }
+
+        await conn.query(
+            `UPDATE borrow_requests
+             SET status = 'Returned', return_date = NOW()
+             WHERE id = ?`,
+            [req.params.id]
+        );
+
+        await conn.query(
+            'UPDATE books SET copies_available = copies_available + 1 WHERE book_id = ?',
+            [found[0].book_id]
+        );
+
+        await conn.commit();
+        res.json(toRequest(await getRequestById(req.params.id)));
+    } catch (err) {
+        await conn.rollback();
+        console.error(err);
+        res.status(500).json({ message: 'Failed to mark as returned.' });
+    } finally {
+        conn.release();
+    }
 });
 
 // START SERVER
