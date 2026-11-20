@@ -9,12 +9,13 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
 
   function handleChange(e) {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -24,8 +25,10 @@ export default function Register() {
       return;
     }
 
+    setLoading(true);
+
     try {
-      registerStudent({
+      await registerStudent({
         name: form.name,
         studentId: form.studentId,
         email: form.email,
@@ -35,6 +38,8 @@ export default function Register() {
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -99,8 +104,8 @@ export default function Register() {
                 </button>
               </div>
             </div>
-            <button type="submit" className="btn btn-primary w-100">
-              Register
+            <button type="submit" className="btn btn-primary w-100" disabled={loading}>
+              {loading ? 'Registering...' : 'Register'}
             </button>
           </form>
 

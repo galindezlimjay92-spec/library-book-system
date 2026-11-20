@@ -12,6 +12,7 @@ export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
   // A Google sign-in resolves asynchronously (role comes from Firestore via
@@ -24,14 +25,18 @@ export default function Login() {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setLoading(true);
+
     try {
-      const sess = login({ ...form, role });
+      const sess = await login({ ...form, role });
       navigate(sess.role === 'admin' ? '/admin' : '/student');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -151,8 +156,14 @@ export default function Login() {
             </a>
           </div>
 
-          <button type="submit" className="btn btn-primary w-100 fw-semibold">
-            Login <i className="bi bi-arrow-right ms-1"></i>
+          <button type="submit" className="btn btn-primary w-100 fw-semibold" disabled={loading}>
+            {loading ? (
+              'Logging in...'
+            ) : (
+              <>
+                Login <i className="bi bi-arrow-right ms-1"></i>
+              </>
+            )}
           </button>
         </form>
 

@@ -5,22 +5,20 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const DataContext = createContext(null);
 
-const API_URL = 'https://library-book-system.onrender.com/api/books';
-const LOGIN_URL = 'https://library-book-system.onrender.com/api/login';
-const REQUESTS_URL = 'https://library-book-system.onrender.com/api/requests';
+const BASE_URL = 'https://library-book-system.onrender.com/api';
+const API_URL = `${BASE_URL}/books`;
+const LOGIN_URL = `${BASE_URL}/login`;
+const REQUESTS_URL = `${BASE_URL}/requests`;
+const REGISTER_URL = `${BASE_URL}/register`;
+const AUTH_LOGIN_URL = `${BASE_URL}/auth/login`;
+const STUDENTS_URL = `${BASE_URL}/students`;
 
 const KEYS = {
-  students: 'lbs_students',
-  admins: 'lbs_admins',
   session: 'lbs_session',
 };
 
-const DEFAULT_ADMIN = {
-  id: 'adm-default',
-  name: 'Library Admin',
-  email: 'admin@library.com',
-  password: 'admin123',
-};
+// Old browser-only data (including plain-text passwords) that is no longer used
+const OLD_KEYS = ['lbs_students', 'lbs_admins', 'lbs_requests'];
 
 function load(key, fallback) {
   try {
@@ -80,18 +78,7 @@ function reportLogin(sess) {
 }
 
 export function DataProvider({ children }) {
-  const [students, setStudents] = useState(() => load(KEYS.students, []));
-
-  const [admins, setAdmins] = useState(() => {
-    const stored = load(KEYS.admins, [DEFAULT_ADMIN]);
-
-    const hasDefault = stored.some(
-      (a) => a.email?.toLowerCase() === DEFAULT_ADMIN.email.toLowerCase()
-    );
-
-    return hasDefault ? stored : [DEFAULT_ADMIN, ...stored];
-  });
-
+  const [students, setStudents] = useState([]);
   const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState([]);
   const [session, setSession] = useState(() => load(KEYS.session, null));
@@ -99,9 +86,19 @@ export function DataProvider({ children }) {
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState('');
 
-  // Save local data (accounts and session only)
-  useEffect(() => save(KEYS.students, students), [students]);
-  useEffect(() => save(KEYS.admins, admins), [admins]);
+  // Admin accounts now live in the database (kept so older pages don't break)
+  const admins = [];
+
+  const isAdmin = session?.role === 'admin';
+
+  // Remove old browser-only data that had plain-text passwords
+  useEffect(() => {
+    try {
+      OLD_KEYS.forEach((key) => localStorage.removeItem(key));
+    } catch (err) {
+      console.error('Local storage error:', err);
+    }
+  }, []);
 
   useEffect(() => {
     if (session) save(KEYS.session, session);
@@ -163,6 +160,29 @@ export function DataProvider({ children }) {
     }
   }
 
+  // Load registered students from online Express API (for the admin)
+  async function syncStudents() {
+    try {
+      const res = await fetch(STUDENTS_URL);
+
+      if (!res.ok) {
+        throw new Error(`Students API error: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid students response from backend.');
+      }
+
+      setStudents(data);
+      return data;
+    } catch (err) {
+      backendOffline(err);
+      return [];
+    }
+  }
+
   useEffect(() => {
     syncSeedBooks();
   }, []);
@@ -180,6 +200,21 @@ export function DataProvider({ children }) {
 
     return () => clearInterval(timer);
   }, []);
+
+  // Admins also load the student list, and keep it fresh
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    syncStudents();
+
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncStudents();
+      }
+    }, 15000);
+
+    return () => clearInterval(timer);
+  }, [isAdmin]);
 
   // Firebase / Google Authentication Listener
   useEffect(() => {
@@ -225,28 +260,6 @@ export function DataProvider({ children }) {
 
         setSession(sess);
         setAuthError('');
-
-        if (role === 'student') {
-          setStudents((prev) =>
-            prev.some(
-              (s) =>
-                s.email &&
-                s.email.toLowerCase() === currentUser.email?.toLowerCase()
-            )
-              ? prev
-              : [
-                  ...prev,
-                  {
-                    id: currentUser.uid,
-                    name: currentUser.displayName || currentUser.email,
-                    studentId: `google-${currentUser.uid.slice(0, 6)}`,
-                    email: currentUser.email,
-                    password: null,
-                    provider: 'google',
-                  },
-                ]
-          );
-        }
       } catch (err) {
         console.error('Failed to load/create Firestore user profile:', err);
         setAuthError(
@@ -260,69 +273,52 @@ export function DataProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  // AUTH FUNCTIONS
+  // AUTH FUNCTIONS (accounts are saved in the online database)
 
-  function registerStudent({ name, studentId, email, password }) {
-    if (
-      students.some(
-        (s) => s.email?.toLowerCase() === email.toLowerCase()
-      )
-    ) {
-      throw new Error('Email is already registered.');
-    }
+  async function registerStudent({ name, studentId, email, password }) {
+    const user = await requestApi(REGISTER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'student',
+        name,
+        studentId,
+        email,
+        password,
+      }),
+    });
 
-    const newStudent = {
-      id: genId('stu'),
-      name,
-      studentId,
-      email,
-      password,
-      provider: 'email',
-    };
-
-    setStudents((prev) => [...prev, newStudent]);
-    return newStudent;
+    return user;
   }
 
-  function registerAdmin({ name, email, password }) {
-    if (
-      admins.some(
-        (a) => a.email?.toLowerCase() === email.toLowerCase()
-      )
-    ) {
-      throw new Error('Email is already registered.');
-    }
+  async function registerAdmin({ name, email, password }) {
+    const user = await requestApi(REGISTER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'admin',
+        name,
+        email,
+        password,
+      }),
+    });
 
-    const newAdmin = {
-      id: genId('adm'),
-      name,
-      email,
-      password,
-    };
-
-    setAdmins((prev) => [...prev, newAdmin]);
-    return newAdmin;
+    return user;
   }
 
-  function login({ email, password, role }) {
-    const list = role === 'admin' ? admins : students;
-
-    const user = list.find(
-      (u) =>
-        u.email?.toLowerCase() === email.toLowerCase() &&
-        u.password === password
-    );
-
-    if (!user) {
-      throw new Error('Invalid email or password.');
-    }
+  async function login({ email, password, role }) {
+    const user = await requestApi(AUTH_LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, role }),
+    });
 
     const sess = {
-      role,
+      role: user.role,
       id: user.id,
       name: user.name,
       email: user.email,
-      provider: user.provider || 'email',
+      provider: 'email',
     };
 
     setSession(sess);
@@ -468,6 +464,7 @@ export function DataProvider({ children }) {
     deleteBook,
     syncSeedBooks,
     syncRequests,
+    syncStudents,
 
     createBorrowRequest,
     approveRequest,
