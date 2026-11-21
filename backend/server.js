@@ -527,7 +527,7 @@ app.get('/api/students', verifyToken, requireRole('admin'), async (req, res) => 
             return {
                 id: d.id,
                 name: u.displayName || u.email || '',
-                studentId: `google-${d.id.slice(0, 6)}`,
+                studentId: u.studentId || `google-${d.id.slice(0, 6)}`,
                 email: u.email || '',
                 provider: 'google'
             };

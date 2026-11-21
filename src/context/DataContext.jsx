@@ -106,12 +106,7 @@ export function DataProvider({ children }) {
   const [students, setStudents] = useState([]);
   const [books, setBooks] = useState([]);
   const [requests, setRequests] = useState([]);
-
-  // Only Google sessions are valid now (older email sessions are dropped)
-  const [session, setSession] = useState(() => {
-    const saved = load(KEYS.session, null);
-    return saved && saved.provider === 'google' ? saved : null;
-  });
+  const [session, setSession] = useState(() => load(KEYS.session, null));
 
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState('');
@@ -239,7 +234,7 @@ export function DataProvider({ children }) {
     return () => clearInterval(timer);
   }, [isAdmin, session?.id]);
 
-  // Firebase / Google Authentication Listener
+  // Firebase Authentication Listener (Google and Email/Password)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
@@ -252,28 +247,40 @@ export function DataProvider({ children }) {
         const userRef = doc(db, 'users', currentUser.uid);
         const userSnap = await getDoc(userRef);
 
-        let role;
+        // The person may have signed out while we were waiting
+        if (auth.currentUser?.uid !== currentUser.uid) return;
 
-        if (userSnap.exists()) {
-          role = userSnap.data().role || 'student';
-        } else {
-          role = 'student';
+        const saved = userSnap.exists() ? userSnap.data() : null;
+        const role = saved?.role || 'student';
 
-          await setDoc(userRef, {
-            displayName: currentUser.displayName,
-            email: currentUser.email,
-            photoURL: currentUser.photoURL,
-            role,
-            createdAt: serverTimestamp(),
-          });
+        if (!saved) {
+          // First sign-in: create the profile (merge, so nothing saved elsewhere is lost)
+          await setDoc(
+            userRef,
+            {
+              ...(currentUser.displayName
+                ? { displayName: currentUser.displayName }
+                : {}),
+              email: currentUser.email,
+              photoURL: currentUser.photoURL || null,
+              role: 'student',
+              createdAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
         }
+
+        if (auth.currentUser?.uid !== currentUser.uid) return;
+
+        const isEmailAccount =
+          currentUser.providerData?.[0]?.providerId === 'password';
 
         const sess = {
           role,
           id: currentUser.uid,
-          name: currentUser.displayName || currentUser.email,
+          name: saved?.displayName || currentUser.displayName || currentUser.email,
           email: currentUser.email,
-          provider: 'google',
+          provider: isEmailAccount ? 'email' : 'google',
         };
 
         const previous = load(KEYS.session, null);
@@ -285,6 +292,8 @@ export function DataProvider({ children }) {
         setSession(sess);
         setAuthError('');
       } catch (err) {
+        if (auth.currentUser?.uid !== currentUser.uid) return;
+
         console.error('Failed to load/create Firestore user profile:', err);
         setAuthError(
           err.message || 'Failed to load your account. Please try again.'
