@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
-const admin = require('firebase-admin');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore } = require('firebase-admin/firestore');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -18,8 +20,8 @@ app.use(cors({ origin: allowedOrigins }));
 try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+        credential: cert(serviceAccount)
     });
 
     console.log('Firebase Admin ready');
@@ -38,7 +40,7 @@ async function getRole(uid) {
         return cached.role;
     }
 
-    const snap = await admin.firestore().collection('users').doc(uid).get();
+    const snap = await getFirestore().collection('users').doc(uid).get();
     const role = snap.exists ? snap.data().role || 'student' : 'student';
 
     roleCache.set(uid, { role, expires: Date.now() + 60 * 1000 });
@@ -47,7 +49,7 @@ async function getRole(uid) {
 
 // Checks the "Authorization: Bearer <token>" header
 async function verifyToken(req, res, next) {
-    if (admin.apps.length === 0) {
+    if (getApps().length === 0) {
         return res.status(500).json({
             message: 'Server login check is not set up.'
         });
@@ -63,7 +65,7 @@ async function verifyToken(req, res, next) {
     let decoded;
 
     try {
-        decoded = await admin.auth().verifyIdToken(token);
+        decoded = await getAuth().verifyIdToken(token);
     } catch (err) {
         console.error('Token check failed:', err.message);
         return res.status(401).json({
@@ -511,12 +513,11 @@ app.put('/api/requests/:id/return', verifyToken, requireRole('admin'), async (re
 });
 
 // ===== STUDENTS (admin only) =====
-// Students are the Google users saved in Firestore with role "student"
+// Students are the users saved in Firestore with role "student"
 
 app.get('/api/students', verifyToken, requireRole('admin'), async (req, res) => {
     try {
-        const snap = await admin
-            .firestore()
+        const snap = await getFirestore()
             .collection('users')
             .where('role', '==', 'student')
             .get();
@@ -529,7 +530,7 @@ app.get('/api/students', verifyToken, requireRole('admin'), async (req, res) => 
                 name: u.displayName || u.email || '',
                 studentId: u.studentId || `google-${d.id.slice(0, 6)}`,
                 email: u.email || '',
-                provider: 'google'
+                provider: 'firebase'
             };
         });
 
