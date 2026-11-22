@@ -169,4 +169,27 @@ Create `backend/.env` (it is excluded from Git) with the variables below.
 
 ## Deployment
 
-1. **Database:** create a TiDB Cloud
+
+1. **Database:** create a TiDB Cloud cluster, create `library_db`, and run the schema above.
+2. **Firebase:** enable the Google and Email/Password sign-in methods, create a Firestore database, and add the Netlify domain under Authentication, Settings, Authorized domains.
+3. **Backend (Render):** create a Web Service from this repository with `backend` as the root directory, build command `npm install`, and start command `node server.js`. Add the environment variables above in the Render dashboard.
+4. **Frontend (Netlify):** connect this repository. Build command `npm run build`, publish directory `dist`. A `_redirects` file / `netlify.toml` rule makes React Router paths work on refresh.
+
+## Security Notes
+
+- Protected endpoints verify the Firebase ID token and check the user's role before touching the database.
+- A student's name and ID come from the verified token, not from the request body.
+- CORS only allows the configured frontend origin.
+- All credentials (database, Firebase Admin, client origin) are stored as environment variables, not in the repository.
+- `node_modules` and `.env` files are excluded through `.gitignore`.
+
+## Known Limitations
+
+- The free Render service sleeps after inactivity, which causes a slow first request.
+- Requests and book counts refresh by polling every 15 seconds instead of in real time.
+- The database stores one copies number per book, so the "total" and "available" counts show the same value.
+- Admin roles are assigned manually in Firestore.
+
+## Author
+
+Lim Jay Galindez
